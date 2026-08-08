@@ -1,0 +1,8 @@
+{
+  "name": "final Innovista Enterprise - Multi-Branch Price \u0026 Quotation ERP",
+  "description": "Centralized master price management, real-time multi-branch price sync, dynamic transport cost engine, and fabrication quotation system for construction \u0026 aluminium fabrication.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

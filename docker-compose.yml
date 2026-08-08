@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  innovista-pos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: innovista_pos_app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - APP_URL=${APP_URL:-http://localhost:3000}
+    volumes:
+      - pos_data:/app/data
+
+volumes:
+  pos_data:
+    driver: local

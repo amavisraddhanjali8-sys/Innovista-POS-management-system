@@ -1,0 +1,346 @@
+@import "tailwindcss";
+
+@theme {
+  --color-orange-50: #FEFDDF;
+  --color-orange-100: #FEFDDF;
+  --color-orange-200: #FDF9C2;
+  --color-orange-300: #FFC81E;
+  --color-orange-400: #FFC81E;
+  --color-orange-500: #E87F24;
+  --color-orange-600: #D26E1A;
+  --color-orange-700: #B8520D;
+  --color-orange-800: #9E4409;
+  --color-orange-900: #0F203C;
+
+  --color-red-500: #E87F24;
+  --color-red-600: #D26E1A;
+
+  --color-amber-300: #FFC81E;
+  --color-amber-400: #FFC81E;
+  --color-amber-500: #FFC81E;
+  --color-amber-600: #E6B316;
+
+  --color-yellow-100: #FEFDDF;
+  --color-yellow-200: #FEFDDF;
+  --color-yellow-300: #FFC81E;
+  --color-yellow-400: #FFC81E;
+  --color-yellow-500: #FFC81E;
+  --color-yellow-600: #E6B316;
+
+  --color-blue-100: #FEFDDF;
+  --color-blue-200: #73A5CA;
+  --color-blue-400: #8EB9DC;
+  --color-blue-500: #73A5CA;
+  --color-blue-600: #5C8FB5;
+  --color-blue-700: #42759B;
+  --color-blue-800: #1A2E4E;
+  --color-blue-900: #0F203C;
+  --color-blue-950: #081224;
+
+  --color-sky-100: #FEFDDF;
+  --color-sky-200: #73A5CA;
+  --color-sky-400: #8EB9DC;
+  --color-sky-500: #73A5CA;
+  --color-sky-600: #5C8FB5;
+
+  --color-slate-800: #1A2E4E;
+  --color-slate-900: #0F203C;
+  --color-slate-950: #081224;
+
+  --color-indigo-600: #0F203C;
+  --color-purple-600: #0F203C;
+  --color-emerald-600: #73A5CA;
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #ffffff;
+    color: #0F203C; /* Dark blue text */
+    font-size: 0.8125rem; /* 13px baseline scale for compact POS style */
+    line-height: 1.25rem;
+    font-weight: 400;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, sans-serif;
+    color: #0F203C;
+    font-weight: 600; /* Light bold weight across headings */
+  }
+
+  code, kbd, samp, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Global light bold weight overrides to ensure no harsh heavy black/extrabold text */
+  .font-black, .font-extrabold, .font-bold {
+    font-weight: 600 !important; /* Soft light bold weight */
+  }
+
+  .font-semibold {
+    font-weight: 550 !important;
+  }
+}
+
+/* Custom Palette Root Variables */
+:root {
+  --color-orange-primary: #E87F24;
+  --color-orange-hover: #D26E1A;
+  --color-yellow-primary: #FFC81E;
+  --color-yellow-hover: #E6B316;
+  --color-cream-light: #FEFDDF;
+  --color-blue-steel: #73A5CA;
+  --color-blue-dark: #0F203C;
+}
+
+/* Dreams POS Compact Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #73A5CA;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #E87F24; /* Orange hover scrollbar */
+}
+
+/* Custom Theme Utility Accent Classes */
+.bg-pos-orange {
+  background-color: #E87F24;
+}
+
+.hover\:bg-pos-orange-hover:hover {
+  background-color: #D26E1A;
+}
+
+.text-pos-orange {
+  color: #E87F24;
+}
+
+.border-pos-orange {
+  border-color: #E87F24;
+}
+
+.bg-pos-yellow {
+  background-color: #FFC81E;
+}
+
+.text-pos-yellow {
+  color: #FFC81E;
+}
+
+.border-pos-yellow {
+  border-color: #FFC81E;
+}
+
+.bg-pos-cream {
+  background-color: #FEFDDF;
+}
+
+.bg-pos-skyblue {
+  background-color: #73A5CA;
+}
+
+.text-pos-skyblue {
+  color: #73A5CA;
+}
+
+.border-pos-skyblue {
+  border-color: #73A5CA;
+}
+
+.bg-pos-darkblue {
+  background-color: #0F203C;
+}
+
+.hover\:bg-pos-darkblue-hover:hover {
+  background-color: #1A2E4E;
+}
+
+.text-pos-darkblue {
+  color: #0F203C;
+}
+
+.border-pos-darkblue {
+  border-color: #0F203C;
+}
+
+/* Glass & Compact Card Styles */
+.pos-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem; /* 8px compact corner radius */
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+.pos-card:hover {
+  border-color: #73A5CA;
+}
+
+/* Inputs & Form Controls */
+.pos-input {
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem; /* 6px */
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem; /* 12px */
+  color: #0F203C;
+  transition: all 0.15s ease-in-out;
+  font-weight: 500;
+}
+
+.pos-input:focus {
+  outline: none;
+  border-color: #E87F24;
+  box-shadow: 0 0 0 2px rgba(232, 127, 36, 0.15);
+}
+
+/* Buttons with Light Bold (Semibold) */
+.btn-pos-orange {
+  background-color: #E87F24;
+  color: #ffffff;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.75rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-pos-orange:hover {
+  background-color: #D26E1A;
+  box-shadow: 0 2px 4px 0 rgba(232, 127, 36, 0.25);
+}
+
+.btn-pos-yellow {
+  background-color: #FFC81E;
+  color: #0F203C;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.75rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-pos-yellow:hover {
+  background-color: #E6B316;
+  box-shadow: 0 2px 4px 0 rgba(255, 200, 30, 0.25);
+}
+
+.btn-pos-darkblue {
+  background-color: #0F203C;
+  color: #ffffff;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.75rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-pos-darkblue:hover {
+  background-color: #1A2E4E;
+  box-shadow: 0 2px 4px 0 rgba(15, 32, 60, 0.25);
+}
+
+/* ==========================================================================
+   PRINTER-FRIENDLY QUOTATION STYLES VIA CSS MEDIA QUERIES
+   ========================================================================== */
+@media print {
+  /* Set white background & sharp high contrast text */
+  html, body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
+    font-size: 10pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide all non-printable UI elements */
+  .no-print,
+  header,
+  nav,
+  aside,
+  button,
+  .fixed:not(.printable-modal-overlay),
+  .toast,
+  .floating-action-bar,
+  [role="dialog"] > div:not(.printable-quotation-container),
+  body > div:not(#root) {
+    display: none !important;
+  }
+
+  /* Ensure modal backdrop is invisible on paper */
+  .printable-modal-overlay {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  /* Hide modal header/footer controls during print */
+  .printable-modal-header,
+  .printable-modal-controls {
+    display: none !important;
+  }
+
+  /* Printable Quotation Container fills page */
+  .printable-quotation-container {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm 12mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Page geometry */
+  @page {
+    size: A4 portrait;
+    margin: 10mm 10mm 10mm 10mm;
+  }
+
+  /* Prevent awkward line cuts across table rows */
+  tr, .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  th, td {
+    color: #000000 !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  th {
+    background-color: #0f203c !important;
+    color: #ffffff !important;
+  }
+}
+
+
+
