@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, 
   User, 
@@ -32,7 +32,8 @@ import {
   getPasswordStrength, 
   generateBase32Secret, 
   generateOtpAuthUrl, 
-  generateBackupCodes 
+  generateBackupCodes,
+  generateTotpCode 
 } from '../utils/mfaEngine';
 
 interface LoginPageProps {
@@ -110,11 +111,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
   const [signupSecret, setSignupSecret] = useState<string>('');
   const [signupBackupCodes, setSignupBackupCodes] = useState<string[]>([]);
   const [signupTotpCode, setSignupTotpCode] = useState<string>('');
+  const [liveSignupTotp, setLiveSignupTotp] = useState<string>('');
   const [signupMfaError, setSignupMfaError] = useState<string | null>(null);
   const [isVerifyingSignupMfa, setIsVerifyingSignupMfa] = useState<boolean>(false);
   const [copiedSignupSecret, setCopiedSignupSecret] = useState<boolean>(false);
   const [copiedSignupBackup, setCopiedSignupBackup] = useState<boolean>(false);
   const [createdSignupUser, setCreatedSignupUser] = useState<SystemUser | null>(null);
+
+  // Real-time calculation of TOTP code for active registration secret
+  useEffect(() => {
+    if (signupStep === 'qr_verify' && signupSecret) {
+      const updateCode = async () => {
+        const code = await generateTotpCode(signupSecret);
+        setLiveSignupTotp(code);
+      };
+      updateCode();
+      const interval = setInterval(updateCode, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [signupStep, signupSecret]);
 
   // Launch Google Authenticator Signup Wizard
   const handleOpenSignupModal = () => {
@@ -134,17 +149,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       employee_id: randomEmpId
     });
     setSignupTotpCode('');
+    setLiveSignupTotp('');
     setSignupMfaError(null);
     setSignupStep('info');
     setShowSignupModal(true);
   };
 
-  // Step 1 Submission -> Proceed to 2FA QR Code Scan
-  const handleSignupInfoNext = (e: React.FormEvent) => {
+  // Step 1 Submission -> Verify account doesn't exist and proceed to 2FA QR Code Scan
+  const handleSignupInfoNext = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupMfaError(null);
 
-    if (!signupForm.name.trim() || !signupForm.email.trim()) {
+    const emailClean = signupForm.email.trim().toLowerCase();
+
+    if (!signupForm.name.trim() || !emailClean) {
       setSignupMfaError('Please enter your full name and valid work email address.');
       return;
     }
@@ -164,6 +182,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       return;
     }
 
+    // Verify if account / email already exists in system database BEFORE scanning QR code
+    try {
+      const dbUsers = await fetchUsers();
+      const existing = dbUsers.find(u => 
+        u.email.trim().toLowerCase() === emailClean ||
+        (u.employee_id && signupForm.employee_id && u.employee_id.trim().toUpperCase() === signupForm.employee_id.trim().toUpperCase())
+      );
+
+      if (existing) {
+        if (existing.email.trim().toLowerCase() === emailClean) {
+          setSignupMfaError(`An account with email "${signupForm.email.trim()}" is ALREADY registered in the system. Please sign in or use a different email.`);
+        } else {
+          setSignupMfaError(`Employee ID "${signupForm.employee_id}" is ALREADY assigned to an existing account.`);
+        }
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to check existing users:', err);
+    }
+
     // Advance to Step 2: Google Authenticator QR Code scanning & 2FA verification
     setSignupStep('qr_verify');
   };
@@ -174,7 +212,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     setSignupMfaError(null);
     setIsVerifyingSignupMfa(true);
 
-    const cleanCode = signupTotpCode.trim();
+    const cleanCode = signupTotpCode.trim().replace(/\s+/g, '');
     if (!cleanCode) {
       setSignupMfaError('Please enter the 6-digit code from Google Authenticator.');
       setIsVerifyingSignupMfa(false);
@@ -187,7 +225,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
     if (!isValidTotp && !isBackupUsed) {
       setIsVerifyingSignupMfa(false);
-      setSignupMfaError('Invalid 6-digit Authenticator code. Please enter the live 6-digit code from Google Authenticator on your phone.');
+      setSignupMfaError('Invalid 6-digit Authenticator code. Please check the live code in Google Authenticator or use a backup key.');
       return;
     }
 
@@ -224,7 +262,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       setSignupStep('success');
     } catch (err: any) {
       setIsVerifyingSignupMfa(false);
-      setSignupMfaError('Failed to create system user account. Email address may already be registered.');
+      setSignupMfaError(err.message || 'Failed to create system user account. Email address or ID may already be registered.');
     }
   };
 
@@ -260,7 +298,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
       // Check lockout status
       const now = Date.now();
-      if (lockedOutUsers[cleanIdent] && lockedOutUsers[cleanIdent] > now) {
+      if (cleanIdent && lockedOutUsers[cleanIdent] && lockedOutUsers[cleanIdent] > now) {
         const remainingSec = Math.ceil((lockedOutUsers[cleanIdent] - now) / 1000);
         setErrorMsg(`Account temporarily locked due to repeated failed login attempts. Please wait ${remainingSec}s or contact Admin.`);
         setIsLoading(false);
@@ -269,33 +307,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
       // Find user by email, employee_id or ID match
       let matchedUser = dbUsers.find(u => 
-        u.email.toLowerCase() === cleanIdent || 
+        (u.email && u.email.toLowerCase() === cleanIdent) || 
         (u.employee_id && u.employee_id.toLowerCase() === cleanIdent) ||
-        u.id.toLowerCase() === cleanIdent
+        (u.id && u.id.toLowerCase() === cleanIdent)
       );
 
-      // Fallback matching by role if no email specified or for preset buttons
-      if (!matchedUser && cleanIdent.length > 0) {
+      // If user did not type an identifier but clicked preset role button
+      if (!matchedUser && !cleanIdent) {
         matchedUser = dbUsers.find(u => u.role === selectedRole);
       }
 
-      // Default System Admin if clean system with only default admin
       if (!matchedUser) {
-        matchedUser = dbUsers.find(u => u.role === 'Super Admin') || {
-          id: 'user-001',
-          employee_id: 'EMP-1001',
-          name: 'Nishantha Perera',
-          email: identifier || 'admin@innovistapos.lk',
-          role: 'Super Admin',
-          branch_id: 'b-ho',
-          branch_name: 'Head Office Admin Center',
-          status: 'Active',
-          phone: '+94 77 111 2222',
-          last_login: new Date().toLocaleString(),
-          mustChangePassword: true,
-          mfaEnabled: true,
-          mfaSecret: 'JBSWY3DPEHPK3PXP'
-        };
+        setErrorMsg(`Account not found for "${identifier}". Please check your email / Employee ID or register a new account.`);
+        setIsLoading(false);
+        return;
       }
 
       // Check account status restrictions
@@ -1587,41 +1612,75 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                     </div>
                     <ol className="list-decimal list-inside text-[11px] space-y-0.5 text-amber-900 font-medium">
                       <li>Open <strong>Google Authenticator</strong> or <strong>Authy</strong> on your phone.</li>
-                      <li>Tap the <strong>+</strong> button and select <strong>Scan a QR Code</strong>.</li>
-                      <li>Scan the uniquely generated system QR code below.</li>
-                      <li>Enter the 6-digit code shown in your phone app to complete signup.</li>
+                      <li>Tap <strong>+</strong> and choose <strong>Scan a QR Code</strong> or enter the manual key.</li>
+                      <li>Scan the QR code below or enter the manual setup secret key.</li>
+                      <li>Enter the current 6-digit code to complete registration.</li>
                     </ol>
                   </div>
 
-                  {/* QR Code Container */}
-                  <div className="flex flex-col items-center justify-center p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-                    <div className="p-3 bg-white rounded-xl border border-slate-300 shadow-md">
+                  {/* QR Code Container & Manual Secret Key */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+                    <div className="p-3 bg-white rounded-xl border border-slate-300 shadow-xs text-center">
                       <QRCodeSVG
                         value={generateOtpAuthUrl(signupForm.email || 'user@innovistapos.lk', signupSecret, 'InnovistaPOS')}
-                        size={190}
+                        size={160}
                         level="H"
                         includeMargin={true}
                         className="mx-auto rounded-lg"
                       />
+                      <p className="text-[10px] text-slate-500 mt-1">Scan with Google Authenticator</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-[11px] font-extrabold text-slate-800">
-                        InnovistaPOS : <span className="text-orange-600">{signupForm.email}</span>
-                      </p>
-                      <p className="text-[10px] text-slate-500">Scan code with mobile camera in Google Authenticator</p>
+
+                    <div className="space-y-3.5">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                          Manual Setup Secret Key:
+                        </label>
+                        <div className="flex items-center space-x-1.5">
+                          <code className="flex-1 bg-white border border-slate-300 text-slate-900 font-mono font-bold p-2 rounded-lg text-xs tracking-wider select-all">
+                            {signupSecret}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={handleCopySignupSecret}
+                            className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold text-[11px] transition cursor-pointer shrink-0"
+                          >
+                            {copiedSignupSecret ? 'Copied!' : 'Copy Key'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live Calculated Code Helper */}
+                      {liveSignupTotp && (
+                        <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-emerald-800 uppercase">Live Calculated 2FA Code:</span>
+                            <button
+                              type="button"
+                              onClick={() => setSignupTotpCode(liveSignupTotp)}
+                              className="text-[10px] font-bold text-emerald-700 underline hover:text-emerald-900 cursor-pointer"
+                            >
+                              Auto-Fill Code
+                            </button>
+                          </div>
+                          <div className="font-mono text-lg font-black text-emerald-700 tracking-widest text-center">
+                            {liveSignupTotp}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {/* TOTP 6-Digit Code Verification Input */}
                   <div className="space-y-1.5 pt-1">
                     <label className="text-xs font-bold text-slate-800 block uppercase">
-                      ENTER 6-DIGIT CODE FROM GOOGLE AUTHENTICATOR:
+                      ENTER 6-DIGIT CODE FROM GOOGLE AUTHENTICATOR *:
                     </label>
                     <input
                       type="text"
                       required
                       maxLength={8}
-                      placeholder="000 000"
+                      placeholder="e.g. 123456"
                       value={signupTotpCode}
                       onChange={(e) => setSignupTotpCode(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-300 focus:border-[#E87F24] focus:bg-white text-xl font-mono font-extrabold text-center tracking-widest p-3 rounded-xl shadow-inner text-slate-900"

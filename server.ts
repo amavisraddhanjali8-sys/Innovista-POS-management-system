@@ -1036,11 +1036,19 @@ async function startServer() {
   });
 
   app.post('/api/users', (req, res) => {
+    const email = (req.body.email || '').trim().toLowerCase();
+    if (email) {
+      const existing = systemUsers.find(u => u.email.trim().toLowerCase() === email);
+      if (existing) {
+        return res.status(400).json({ error: `An account with email "${email}" is already registered in the system.` });
+      }
+    }
+
     const newUser: SystemUser = {
       id: req.body.id || `user-${Date.now()}`,
       employee_id: req.body.employee_id || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
       name: req.body.name || 'New User',
-      email: req.body.email || '',
+      email: email,
       role: req.body.role || 'Sales Executive',
       branch_id: req.body.branch_id || 'b-ho',
       branch_name: req.body.branch_name || 'Colombo Head Office (HO)',

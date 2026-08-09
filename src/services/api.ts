@@ -402,7 +402,10 @@ export async function addUser(user: Partial<SystemUser>): Promise<SystemUser> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(user)
   });
-  if (!res.ok) throw new Error('Failed to create user');
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to create user account');
+  }
   return res.json();
 }
 
