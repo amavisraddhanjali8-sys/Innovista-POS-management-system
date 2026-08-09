@@ -1105,6 +1105,7 @@ async function startServer() {
       return res.status(404).json({ error: 'User account not found' });
     }
 
+    user.password = new_password;
     user.mustChangePassword = false;
     user.passwordChangedAt = new Date().toISOString();
     saveDatabase();

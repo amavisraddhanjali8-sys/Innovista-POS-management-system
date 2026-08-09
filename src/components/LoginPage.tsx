@@ -509,6 +509,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
     try {
       await updateUser(selectedRecoveryUser.id, {
+        password: newPassword,
         mustChangePassword: false,
         passwordChangedAt: new Date().toISOString()
       });
@@ -579,6 +580,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
       // Backup key verified! Reset target user account credentials & unlock
       await updateUser(selectedRecoveryUser.id, {
+        password: newPassword,
         status: 'Active',
         mustChangePassword: false,
         passwordChangedAt: new Date().toISOString(),
