@@ -365,6 +365,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         return;
       }
 
+      // Strict Access Control & Role Validation:
+      // Prevent Sales Executives from logging in under Admin or Manager roles, and vice versa
+      if (matchedUser.role === 'Sales Executive') {
+        if (selectedRole !== 'Sales Executive') {
+          setErrorMsg(`Access Denied: Sales Executive accounts are strictly prohibited from logging in under ${selectedRole === 'Super Admin' ? 'HO Admin' : selectedRole} portal access role. Please select 'Sales Exec' portal role.`);
+          setIsLoading(false);
+          return;
+        }
+      } else if (selectedRole === 'Sales Executive') {
+        if (matchedUser.role === 'Super Admin' || matchedUser.role === 'HO Admin' || matchedUser.role === 'Branch Manager') {
+          setErrorMsg(`Access Denied: Administrator and Manager accounts cannot be accessed under the 'Sales Exec' portal access role. Please select '${matchedUser.role === 'Branch Manager' ? 'Manager' : 'HO Admin'}' portal access role.`);
+          setIsLoading(false);
+          return;
+        }
+      } else if (selectedRole === 'Branch Manager') {
+        if (matchedUser.role !== 'Branch Manager') {
+          setErrorMsg(`Access Denied: Account '${matchedUser.name}' (${matchedUser.email || matchedUser.employee_id}) has assigned role '${matchedUser.role}' and cannot log in under 'Manager' portal access role.`);
+          setIsLoading(false);
+          return;
+        }
+      } else if (selectedRole === 'Super Admin') {
+        if (matchedUser.role !== 'Super Admin' && matchedUser.role !== 'HO Admin') {
+          setErrorMsg(`Access Denied: Account '${matchedUser.name}' (${matchedUser.email || matchedUser.employee_id}) has assigned role '${matchedUser.role}' and cannot log in under 'HO Admin' portal access role.`);
+          setIsLoading(false);
+          return;
+        }
+      }
+
       // Validate Password if set on account
       const cleanTypedPassword = password.trim();
       const userStoredPassword = matchedUser.password ? matchedUser.password.trim() : '';
