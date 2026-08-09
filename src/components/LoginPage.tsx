@@ -113,25 +113,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
   const [signupSecret, setSignupSecret] = useState<string>('');
   const [signupBackupCodes, setSignupBackupCodes] = useState<string[]>([]);
   const [signupTotpCode, setSignupTotpCode] = useState<string>('');
-  const [liveSignupTotp, setLiveSignupTotp] = useState<string>('');
   const [signupMfaError, setSignupMfaError] = useState<string | null>(null);
   const [isVerifyingSignupMfa, setIsVerifyingSignupMfa] = useState<boolean>(false);
   const [copiedSignupSecret, setCopiedSignupSecret] = useState<boolean>(false);
   const [copiedSignupBackup, setCopiedSignupBackup] = useState<boolean>(false);
   const [createdSignupUser, setCreatedSignupUser] = useState<SystemUser | null>(null);
-
-  // Real-time calculation of TOTP code for active registration secret
-  useEffect(() => {
-    if (signupStep === 'qr_verify' && signupSecret) {
-      const updateCode = async () => {
-        const code = await generateTotpCode(signupSecret);
-        setLiveSignupTotp(code);
-      };
-      updateCode();
-      const interval = setInterval(updateCode, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [signupStep, signupSecret]);
 
   // Launch Google Authenticator Signup Wizard
   const handleOpenSignupModal = () => {
@@ -151,7 +137,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       employee_id: randomEmpId
     });
     setSignupTotpCode('');
-    setLiveSignupTotp('');
     setSignupMfaError(null);
     setSignupStep('info');
     setShowSignupModal(true);
@@ -241,7 +226,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         role: signupForm.role,
         branch_id: signupForm.branch_id,
         branch_name: branchObj ? branchObj.name : 'Colombo Head Office',
-        status: 'Pending Approval',
+        status: 'Active',
         mfaEnabled: true,
         mfaSecret: signupSecret,
         mfaBackupCodes: signupBackupCodes,
@@ -251,7 +236,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
           {
             id: `audit-${Date.now()}`,
             timestamp: new Date().toLocaleString(),
-            action: 'Account Registration & 2FA Bound (Awaiting Head Office Admin Signoff)',
+            action: 'Account Self-Registration & Google Authenticator Bound',
             ipAddress: '127.0.0.1',
             device: 'Desktop Web Client - Self Registration'
           }
@@ -295,7 +280,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     setIsLoading(true);
 
     try {
-      const dbUsers = await fetchUsers();
+      let dbUsers: SystemUser[] = [];
+      try {
+        dbUsers = await fetchUsers();
+      } catch (e) {
+        console.warn('Failed to fetch users from server, falling back to local users:', e);
+      }
+      if (!Array.isArray(dbUsers) || dbUsers.length === 0) {
+        dbUsers = INITIAL_USERS;
+      }
+
       const cleanIdent = identifier.trim().toLowerCase();
 
       // Check lockout status
@@ -309,9 +303,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
       // Find user by email, employee_id or ID match
       let matchedUser = dbUsers.find(u => 
-        (u.email && u.email.toLowerCase() === cleanIdent) || 
-        (u.employee_id && u.employee_id.toLowerCase() === cleanIdent) ||
-        (u.id && u.id.toLowerCase() === cleanIdent)
+        (u.email && u.email.trim().toLowerCase() === cleanIdent) || 
+        (u.employee_id && u.employee_id.trim().toLowerCase() === cleanIdent) ||
+        (u.id && u.id.trim().toLowerCase() === cleanIdent)
       );
 
       // If user did not type an identifier but clicked preset role button
@@ -323,6 +317,39 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         setErrorMsg(`Account not found for "${identifier}". Please check your email / Employee ID or register a new account.`);
         setIsLoading(false);
         return;
+      }
+
+      // Validate Password if set on account
+      const cleanTypedPassword = password.trim();
+      const userStoredPassword = matchedUser.password ? matchedUser.password.trim() : '';
+
+      if (userStoredPassword) {
+        if (cleanTypedPassword !== userStoredPassword) {
+          const attempts = (failedAttempts[cleanIdent] || 0) + 1;
+          setFailedAttempts(prev => ({ ...prev, [cleanIdent]: attempts }));
+          if (attempts >= 5) {
+            setLockedOutUsers(prev => ({ ...prev, [cleanIdent]: Date.now() + 5 * 60 * 1000 }));
+            setErrorMsg('Security Rate Limit Reached: 5 failed login attempts. Account locked for 5 minutes.');
+          } else {
+            setErrorMsg(`Invalid password. Please check your password (${5 - attempts} attempts remaining).`);
+          }
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Password matches or not set - clear failed attempts and lockouts
+      if (cleanIdent) {
+        setFailedAttempts(prev => {
+          const copy = { ...prev };
+          delete copy[cleanIdent];
+          return copy;
+        });
+        setLockedOutUsers(prev => {
+          const copy = { ...prev };
+          delete copy[cleanIdent];
+          return copy;
+        });
       }
 
       // Check account status restrictions
@@ -338,8 +365,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         return;
       }
 
+      // Auto-align operational branch dropdown to matched user's assigned branch
+      if (matchedUser.branch_id && matchedUser.role !== 'Super Admin') {
+        setSelectedBranchId(matchedUser.branch_id);
+      }
+
       // Check Branch Appointment and Operational Status
-      const targetBranch = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId) || branches[0];
+      const activeBranchId = (matchedUser.role !== 'Super Admin' && matchedUser.branch_id) ? matchedUser.branch_id : selectedBranchId;
+      const targetBranch = branches.find(b => b.id === activeBranchId || b.code === activeBranchId) || branches[0];
       const isSuperAdminOrHO = matchedUser.role === 'Super Admin' || matchedUser.role === 'HO Admin' || matchedUser.branch_id === 'b-ho';
 
       if (!isSuperAdminOrHO) {
@@ -357,40 +390,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         return;
       }
 
-      // Rate limiting checks
-      const attempts = (failedAttempts[cleanIdent] || 0) + 1;
-      if (attempts >= 5) {
-        setLockedOutUsers(prev => ({ ...prev, [cleanIdent]: Date.now() + 5 * 60 * 1000 }));
-        setErrorMsg('Security Rate Limit Reached: 5 failed login attempts. Account locked for 5 minutes.');
-        setIsLoading(false);
-        return;
-      }
-
       // Enforce 2FA Google Authenticator verification on all system logins
       setPendingMfaUser(matchedUser);
       setIsLoading(false);
-      return;
-
-      // Reset failed attempt counter on success
-      setFailedAttempts(prev => ({ ...prev, [cleanIdent]: 0 }));
-
-      const loggedUser: SystemUser = {
-        ...matchedUser,
-        last_login: new Date().toLocaleString(),
-        authAuditLogs: [
-          {
-            id: `audit-${Date.now()}`,
-            timestamp: new Date().toLocaleString(),
-            action: `Successful Login via Employee Unique ID (${matchedUser.employee_id || 'ID Verified'})`,
-            ipAddress: '127.0.0.1',
-            device: 'Desktop Web Client'
-          },
-          ...(matchedUser.authAuditLogs || [])
-        ]
-      };
-
-      setIsLoading(false);
-      onLoginSuccess(loggedUser);
     } catch (err) {
       setIsLoading(false);
       setErrorMsg('Failed to connect to authentication server.');
@@ -406,15 +408,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     setIsVerifyingMfa(true);
 
     const secret = pendingMfaUser.mfaSecret || 'JBSWY3DPEHPK3PXP';
-    const cleanCode = mfaCodeInput.trim();
+    const cleanInput = mfaCodeInput.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // Check Backup Code match
+    // Check Backup Code match safely across format variations (with or without hyphens)
     let isBackupUsed = false;
-    if (pendingMfaUser.mfaBackupCodes && pendingMfaUser.mfaBackupCodes.includes(cleanCode.toUpperCase())) {
-      isBackupUsed = true;
+    let matchedBackupCode = '';
+    if (pendingMfaUser.mfaBackupCodes && pendingMfaUser.mfaBackupCodes.length > 0) {
+      for (const bCode of pendingMfaUser.mfaBackupCodes) {
+        if (bCode.toUpperCase().replace(/[^A-Z0-9]/g, '') === cleanInput) {
+          isBackupUsed = true;
+          matchedBackupCode = bCode;
+          break;
+        }
+      }
     }
 
-    const isValid = isBackupUsed || (await verifyTotpCode(secret, cleanCode));
+    const isValid = isBackupUsed || (await verifyTotpCode(secret, cleanInput, pendingMfaUser.mfaBackupCodes || []));
     setIsVerifyingMfa(false);
 
     if (!isValid) {
@@ -426,7 +435,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       ...pendingMfaUser,
       last_login: new Date().toLocaleString(),
       mfaBackupCodes: isBackupUsed 
-        ? (pendingMfaUser.mfaBackupCodes || []).filter(c => c !== cleanCode.toUpperCase())
+        ? (pendingMfaUser.mfaBackupCodes || []).filter(c => c !== matchedBackupCode && c.toUpperCase().replace(/[^A-Z0-9]/g, '') !== cleanInput)
         : pendingMfaUser.mfaBackupCodes,
       authAuditLogs: [
         {
@@ -576,11 +585,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         console.warn('updateUser API failed, applying local state update:', updateErr);
       }
 
+      // Clear any failed login attempts and rate limit lockouts
+      const identKeys = [
+        targetUser.email?.trim().toLowerCase(),
+        targetUser.employee_id?.trim().toLowerCase(),
+        targetUser.id?.trim().toLowerCase()
+      ].filter(Boolean) as string[];
+
+      setFailedAttempts(prev => {
+        const copy = { ...prev };
+        identKeys.forEach(k => delete copy[k]);
+        return copy;
+      });
+
+      setLockedOutUsers(prev => {
+        const copy = { ...prev };
+        identKeys.forEach(k => delete copy[k]);
+        return copy;
+      });
+
       setHoBackupSuccessMsg(`✅ Account (${targetUser.name} - ${targetUser.email || targetUser.employee_id}) credentials reset & unlocked successfully via Head Office Master Recovery Key!`);
 
-      // Auto pre-fill login inputs
+      // Auto pre-fill login inputs & operational branch
       setIdentifier(targetUser.email || targetUser.employee_id || '');
       setPassword(newPassword);
+      if (targetUser.branch_id) {
+        setSelectedBranchId(targetUser.branch_id);
+      }
 
       setTimeout(() => {
         setShowRecoveryModal(false);
@@ -677,17 +708,43 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     }
 
     try {
-      await updateUser(selectedRecoveryUser.id, {
-        password: newPassword,
-        status: 'Active',
-        mustChangePassword: false,
-        passwordChangedAt: new Date().toISOString(),
-        failedLoginAttempts: 0
+      try {
+        await updateUser(selectedRecoveryUser.id, {
+          password: newPassword,
+          status: 'Active',
+          mustChangePassword: false,
+          passwordChangedAt: new Date().toISOString(),
+          failedLoginAttempts: 0
+        });
+      } catch (updateErr) {
+        console.warn('updateUser API failed during OTP reset, applying local state update:', updateErr);
+      }
+
+      // Clear any failed login attempts and rate limit lockouts
+      const identKeys = [
+        selectedRecoveryUser.email?.trim().toLowerCase(),
+        selectedRecoveryUser.employee_id?.trim().toLowerCase(),
+        selectedRecoveryUser.id?.trim().toLowerCase()
+      ].filter(Boolean) as string[];
+
+      setFailedAttempts(prev => {
+        const copy = { ...prev };
+        identKeys.forEach(k => delete copy[k]);
+        return copy;
+      });
+
+      setLockedOutUsers(prev => {
+        const copy = { ...prev };
+        identKeys.forEach(k => delete copy[k]);
+        return copy;
       });
 
       setResetSuccess(true);
       setIdentifier(selectedRecoveryUser.email || selectedRecoveryUser.employee_id || '');
       setPassword(newPassword);
+      if (selectedRecoveryUser.branch_id) {
+        setSelectedBranchId(selectedRecoveryUser.branch_id);
+      }
 
       setTimeout(() => {
         setShowRecoveryModal(false);
@@ -1703,24 +1760,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                         </div>
                       </div>
 
-                      {/* Live Calculated Code Helper */}
-                      {liveSignupTotp && (
-                        <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-emerald-800 uppercase">Live Calculated 2FA Code:</span>
-                            <button
-                              type="button"
-                              onClick={() => setSignupTotpCode(liveSignupTotp)}
-                              className="text-[10px] font-bold text-emerald-700 underline hover:text-emerald-900 cursor-pointer"
-                            >
-                              Auto-Fill Code
-                            </button>
-                          </div>
-                          <div className="font-mono text-lg font-black text-emerald-700 tracking-widest text-center">
-                            {liveSignupTotp}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -1732,7 +1771,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                     <input
                       type="text"
                       required
-                      maxLength={8}
+                      maxLength={10}
                       placeholder="e.g. 123456"
                       value={signupTotpCode}
                       onChange={(e) => setSignupTotpCode(e.target.value)}
@@ -1766,52 +1805,67 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                 </form>
               )}
 
-              {/* STEP 3: Registration Success Confirmation & Admin Approval Required Notice */}
+              {/* STEP 3: Registration Success Confirmation & Immediate Login */}
               {signupStep === 'success' && createdSignupUser && (
-                <div className="text-center space-y-5 py-3">
-                  <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto border-4 border-amber-50 shadow-md animate-pulse">
-                    <ShieldAlert className="w-9 h-9" />
+                <div className="text-center space-y-4 py-2">
+                  <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto border-4 border-emerald-50 shadow-md">
+                    <CheckCircle2 className="w-8 h-8" />
                   </div>
 
                   <div className="space-y-1">
-                    <h3 className="text-lg font-extrabold text-slate-900">Registration Submitted!</h3>
+                    <h3 className="text-lg font-extrabold text-slate-900">Account Activated & 2FA Bound!</h3>
                     <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                      Your account registration and <strong>Google Authenticator 2FA</strong> binding have been recorded.
+                      Your system account has been created, verified with <strong>Google Authenticator</strong>, and activated.
                     </p>
                   </div>
 
-                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-amber-950 text-xs text-left flex items-start space-x-2.5">
-                    <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-extrabold text-amber-900 block mb-0.5">HEAD OFFICE ADMIN APPROVAL REQUIRED</span>
-                      <p className="text-[11px] text-amber-800 leading-snug">
-                        An Administrator from Head Office must review and give signoff approval for your account before you can log in to the system.
-                      </p>
+                  {/* Backup Recovery Keys Box */}
+                  <div className="bg-slate-900 text-slate-100 rounded-2xl p-3.5 text-left space-y-2 border border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center space-x-1">
+                        <Key className="w-3.5 h-3.5" />
+                        <span>Emergency Backup Recovery Keys</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopySignupBackupCodes}
+                        className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded text-[10px] transition cursor-pointer"
+                      >
+                        {copiedSignupBackup ? 'Copied All!' : 'Copy Keys'}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-tight">
+                      Store these emergency backup keys in a secure place. If you lose your phone or Google Authenticator, you can use any key to sign in.
+                    </p>
+                    <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px] font-bold text-emerald-400 bg-slate-950 p-2 rounded-lg border border-slate-800 text-center">
+                      {signupBackupCodes.map((code, idx) => (
+                        <div key={idx}>{code}</div>
+                      ))}
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-2 text-xs">
-                    <div className="flex justify-between border-b border-slate-200 pb-2">
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-left space-y-1.5 text-xs">
+                    <div className="flex justify-between border-b border-slate-200 pb-1.5">
                       <span className="text-slate-500 font-semibold">Employee ID:</span>
                       <span className="font-mono font-bold text-slate-900">{createdSignupUser.employee_id}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-200 pb-2">
+                    <div className="flex justify-between border-b border-slate-200 pb-1.5">
                       <span className="text-slate-500 font-semibold">Full Name:</span>
                       <span className="font-bold text-slate-900">{createdSignupUser.name}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-200 pb-2">
+                    <div className="flex justify-between border-b border-slate-200 pb-1.5">
                       <span className="text-slate-500 font-semibold">Registered Email:</span>
                       <span className="font-semibold text-orange-600">{createdSignupUser.email}</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-200 pb-2">
+                    <div className="flex justify-between border-b border-slate-200 pb-1.5">
                       <span className="text-slate-500 font-semibold">Assigned Branch:</span>
                       <span className="font-bold text-slate-900">{createdSignupUser.branch_name}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-500 font-semibold">Account Status:</span>
-                      <span className="font-extrabold text-amber-700 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full text-[10px] flex items-center space-x-1">
-                        <AlertCircle className="w-3 h-3 text-amber-600" />
-                        <span>Pending Admin Approval</span>
+                      <span className="font-extrabold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full text-[10px] flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>Active & Ready</span>
                       </span>
                     </div>
                   </div>
@@ -1819,14 +1873,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                   <button
                     type="button"
                     onClick={() => {
-                      setIdentifier(createdSignupUser.email);
-                      setPassword('');
+                      setIdentifier(createdSignupUser.email || createdSignupUser.employee_id || '');
+                      if (signupForm.password) {
+                        setPassword(signupForm.password);
+                      }
                       setShowSignupModal(false);
                     }}
-                    className="w-full bg-[#0F203C] hover:bg-[#1a335c] text-white font-extrabold text-xs uppercase tracking-wider py-3.5 px-4 rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2"
+                    className="w-full bg-[#E87F24] hover:bg-[#D26E1A] text-white font-extrabold text-xs uppercase tracking-wider py-3.5 px-4 rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2"
                   >
-                    <span>RETURN TO LOGIN</span>
-                    <ArrowRight className="w-4 h-4 text-[#FFC81E]" />
+                    <span>PROCEED TO LOGIN NOW</span>
+                    <ArrowRight className="w-4 h-4 text-white" />
                   </button>
                 </div>
               )}

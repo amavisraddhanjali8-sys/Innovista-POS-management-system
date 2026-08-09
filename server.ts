@@ -1070,7 +1070,13 @@ async function startServer() {
 
   app.put('/api/users/:id', (req, res) => {
     const { id } = req.params;
-    const idx = systemUsers.findIndex(u => u.id === id);
+    let idx = systemUsers.findIndex(u => u.id === id);
+    if (idx === -1) {
+      idx = systemUsers.findIndex(u => 
+        (req.body.email && u.email && u.email.trim().toLowerCase() === req.body.email.trim().toLowerCase()) ||
+        (req.body.employee_id && u.employee_id && u.employee_id.trim().toLowerCase() === req.body.employee_id.trim().toLowerCase())
+      );
+    }
     if (idx !== -1) {
       systemUsers[idx] = {
         ...systemUsers[idx],
@@ -1079,7 +1085,28 @@ async function startServer() {
       saveDatabase();
       res.json(systemUsers[idx]);
     } else {
-      res.status(404).json({ error: 'User not found' });
+      const newUser: SystemUser = {
+        id: id,
+        employee_id: req.body.employee_id || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: req.body.name || 'User',
+        email: req.body.email || '',
+        role: req.body.role || 'Sales Executive',
+        branch_id: req.body.branch_id || 'b-ho',
+        branch_name: req.body.branch_name || 'Colombo Head Office',
+        status: req.body.status || 'Active',
+        phone: req.body.phone || '',
+        created_at: new Date().toISOString().split('T')[0],
+        last_login: req.body.last_login || 'Never',
+        mustChangePassword: req.body.mustChangePassword !== undefined ? req.body.mustChangePassword : false,
+        mfaEnabled: req.body.mfaEnabled !== undefined ? req.body.mfaEnabled : true,
+        mfaSecret: req.body.mfaSecret || '',
+        mfaBackupCodes: req.body.mfaBackupCodes || [],
+        password: req.body.password,
+        authAuditLogs: req.body.authAuditLogs || []
+      };
+      systemUsers.unshift(newUser);
+      saveDatabase();
+      res.json(newUser);
     }
   });
 
@@ -1108,7 +1135,13 @@ async function startServer() {
     const { id } = req.params;
     const { new_password } = req.body;
 
-    const user = systemUsers.find(u => u.id === id);
+    let user = systemUsers.find(u => u.id === id);
+    if (!user) {
+      user = systemUsers.find(u => 
+        (req.body?.email && u.email && u.email.trim().toLowerCase() === req.body.email.trim().toLowerCase()) ||
+        (req.body?.employee_id && u.employee_id && u.employee_id.trim().toLowerCase() === req.body.employee_id.trim().toLowerCase())
+      );
+    }
     if (!user) {
       return res.status(404).json({ error: 'User account not found' });
     }

@@ -18,7 +18,7 @@ function base32ToBuf(base32: string): Uint8Array {
   }
   const bytes = new Uint8Array(Math.floor(bits.length / 8));
   for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(bits.substr(i * 8, 8), 2);
+    bytes[i] = parseInt(bits.substring(i * 8, (i + 1) * 8), 2);
   }
   return bytes;
 }
@@ -80,28 +80,32 @@ export async function generateTotpCode(secret: string, timeStepOffset = 0): Prom
   return '';
 }
 
-// Verify TOTP Code against secret with time window tolerance
+// Verify TOTP Code against secret with time window tolerance or emergency backup key
 export async function verifyTotpCode(secret: string, code: string, backupCodes: string[] = []): Promise<boolean> {
-  const clean = code.trim().replace(/\s+/g, '');
-  if (!clean || clean.length < 6) return false;
+  if (!code) return false;
+  const cleanAlphanumeric = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!cleanAlphanumeric || cleanAlphanumeric.length < 6) return false;
 
-  // Check emergency backup codes first if provided
+  // 1. Check emergency backup recovery codes first
   if (backupCodes && backupCodes.length > 0) {
-    const cleanUpper = clean.toUpperCase().replace('-', '');
     for (const bCode of backupCodes) {
-      if (bCode.toUpperCase().replace('-', '') === cleanUpper) {
+      const cleanBCode = bCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (cleanBCode && cleanBCode === cleanAlphanumeric) {
         return true;
       }
     }
   }
 
-  // Check RFC 6238 time steps t-1, t, t+1 (±30 sec tolerance)
-  for (const offset of [-1, 0, 1]) {
-    const computed = await generateTotpCode(secret, offset);
-    if (computed === clean) {
-      return true;
+  // 2. Check RFC 6238 time steps t-2, t-1, t, t+1, t+2 (±60 sec tolerance)
+  if (secret) {
+    for (const offset of [-2, -1, 0, 1, 2]) {
+      const computed = await generateTotpCode(secret, offset);
+      if (computed && computed === cleanAlphanumeric) {
+        return true;
+      }
     }
   }
+
   return false;
 }
 
