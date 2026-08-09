@@ -2206,7 +2206,7 @@ export const MasterPriceManagement: React.FC<MasterPriceManagementProps> = ({
       {/* ========================================================================= */}
       {showAddProductModal && (
         <ProductMasterFormModal
-          product={null}
+          product={{ category: selectedMainCat?.name || newProdCategory || 'Aluminium Profiles', sub_category: selectedSubCatName || newProdSubCategory || '' } as any}
           mode="add"
           categories={categoriesList}
           mainCategories={mainCategories}
@@ -2222,6 +2222,7 @@ export const MasterPriceManagement: React.FC<MasterPriceManagementProps> = ({
                   product_code: formData.product_code,
                   product_name: formData.product_name,
                   category: formData.category,
+                  sub_category: formData.sub_category || selectedSubCatName || newProdSubCategory || '',
                   status: formData.status,
                   unit: formData.unit,
                   price_display_method: formData.price_display_method,
@@ -2236,11 +2237,14 @@ export const MasterPriceManagement: React.FC<MasterPriceManagementProps> = ({
                   handle_type: formData.handle_type,
                   roller_type: formData.roller_type,
                   warranty: formData.warranty,
+                  custom_option_surcharges: formData.custom_option_surcharges,
                   thickness_prices: formData.thickness_prices,
                   finish_prices: formData.finish_prices,
                   colour_prices: formData.colour_prices,
                   glass_prices: formData.glass_prices,
                   installation_prices: formData.installation_prices,
+                  floor_level_prices: formData.floor_level_prices,
+                  facility_type_prices: formData.facility_type_prices,
                   tier_prices: formData.tier_prices,
                   customer_type_prices: formData.customer_type_prices,
                   region_prices: formData.region_prices,
@@ -2268,6 +2272,7 @@ export const MasterPriceManagement: React.FC<MasterPriceManagementProps> = ({
               setShowAddProductModal(false);
             } catch (e) {
               console.error('Add variant product error:', e);
+              alert('Failed to save variant product: ' + (e instanceof Error ? e.message : 'Unknown error'));
             } finally {
               setIsSubmitting(false);
             }
@@ -2293,6 +2298,7 @@ export const MasterPriceManagement: React.FC<MasterPriceManagementProps> = ({
                 product_code: formData.product_code,
                 product_name: formData.product_name,
                 category: formData.category,
+                sub_category: formData.sub_category || editingProduct.sub_category || '',
                 status: formData.status,
                 unit: formData.unit,
                 price_display_method: formData.price_display_method,
@@ -2307,11 +2313,14 @@ export const MasterPriceManagement: React.FC<MasterPriceManagementProps> = ({
                 handle_type: formData.handle_type,
                 roller_type: formData.roller_type,
                 warranty: formData.warranty,
+                custom_option_surcharges: formData.custom_option_surcharges,
                 thickness_prices: formData.thickness_prices,
                 finish_prices: formData.finish_prices,
                 colour_prices: formData.colour_prices,
                 glass_prices: formData.glass_prices,
                 installation_prices: formData.installation_prices,
+                floor_level_prices: formData.floor_level_prices,
+                facility_type_prices: formData.facility_type_prices,
                 tier_prices: formData.tier_prices,
                 customer_type_prices: formData.customer_type_prices,
                 region_prices: formData.region_prices,

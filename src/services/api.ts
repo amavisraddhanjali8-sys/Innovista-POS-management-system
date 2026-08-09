@@ -537,3 +537,31 @@ export async function deleteLocationConfig(id: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to delete location config');
 }
 
+// Database & Server Backend Management APIs
+export async function fetchDatabaseStats(): Promise<any> {
+  const res = await fetch(`${API_BASE}/database/stats`);
+  return parseJsonResponse<any>(res, 'Failed to fetch database stats');
+}
+
+export async function fetchDatabaseBackup(): Promise<any> {
+  const res = await fetch(`${API_BASE}/database/backup`);
+  return parseJsonResponse<any>(res, 'Failed to download database backup');
+}
+
+export async function restoreDatabaseSnapshot(data: any): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/database/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return parseJsonResponse<{ success: boolean; message: string }>(res, 'Failed to restore database');
+}
+
+export async function resetDatabaseToDefault(): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/database/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return parseJsonResponse<{ success: boolean; message: string }>(res, 'Failed to reset database');
+}
+

@@ -323,18 +323,18 @@ export const ProductMasterFormModal: React.FC<ProductMasterFormModalProps> = ({
       });
     } else if (mode === 'add') {
       setFormData({
-        product_code: `AL${Math.floor(Math.random() * 9000 + 1000)}`,
-        product_name: '',
-        category: 'Aluminium Profiles',
-        sub_category: '',
+        product_code: product?.product_code || `AL${Math.floor(Math.random() * 9000 + 1000)}`,
+        product_name: product?.product_name || '',
+        category: product?.category || (mainCategories && mainCategories[0]?.name) || 'Aluminium Profiles',
+        sub_category: product?.sub_category || '',
         status: 'Active',
-        unit: 'bar',
-        price_display_method: 'Standard',
-        unit_weight_kg: 4.5,
-        base_price: 12500,
-        cost_price: 10000,
-        min_selling_price: 11250,
-        description: '',
+        unit: product?.unit || 'bar',
+        price_display_method: product?.price_display_method || 'Standard',
+        unit_weight_kg: product?.unit_weight_kg || 4.5,
+        base_price: product?.base_price || 12500,
+        cost_price: product?.cost_price || 10000,
+        min_selling_price: product?.min_selling_price || 11250,
+        description: product?.description || '',
         profile_series: '100 Series Heavy Duty',
         lock_type: 'Multi-Point Mortise Lock',
         handle_type: 'Architectural Lever Handle',
@@ -724,7 +724,7 @@ export const ProductMasterFormModal: React.FC<ProductMasterFormModalProps> = ({
     }));
   };
 
-  const handleSubmitForm = (e?: React.FormEvent | React.MouseEvent) => {
+  const handleSubmitForm = async (e?: React.FormEvent | React.MouseEvent) => {
     if (e && typeof e.preventDefault === 'function') {
       e.preventDefault();
     }
@@ -740,7 +740,12 @@ export const ProductMasterFormModal: React.FC<ProductMasterFormModalProps> = ({
       alert('Base Price must be a valid non-negative number.');
       return;
     }
-    onSubmit(formData);
+    try {
+      await onSubmit(formData);
+    } catch (err) {
+      console.error('Error saving master item:', err);
+      alert('Failed to save master product item: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
   };
 
   // Live KPI Calculations

@@ -584,11 +584,12 @@ async function startServer() {
     const basePrice = Number(req.body.base_price || req.body.current_price || 0);
 
     const newProd: Product = {
-      id: `p-${Date.now()}`,
+      ...req.body,
+      id: req.body.id || `p-${Date.now()}`,
       product_code: pCode,
       product_name: req.body.product_name || 'New Product Item',
       category: req.body.category || 'Aluminium Profiles',
-      sub_category: req.body.sub_category,
+      sub_category: req.body.sub_category || '',
       unit: req.body.unit || 'm²',
       price_display_method: req.body.price_display_method || 'Standard',
       current_price: basePrice,
@@ -1284,6 +1285,143 @@ async function startServer() {
     locationConfigs = locationConfigs.filter(l => l.id !== id);
     saveDatabase();
     res.json({ success: true, id });
+  });
+
+  // --- DATABASE MANAGEMENT & SERVER BACKEND APIs ---
+  app.get('/api/database/stats', (req, res) => {
+    try {
+      let fileSize = 0;
+      if (fs.existsSync(DB_FILE)) {
+        const stats = fs.statSync(DB_FILE);
+        fileSize = stats.size;
+      }
+      res.json({
+        status: 'healthy',
+        engine: 'Node.js Express + Disk Persistence',
+        file_path: DB_FILE,
+        file_size_bytes: fileSize,
+        last_save: new Date().toISOString(),
+        record_counts: {
+          products: products.length,
+          branches: branches.length,
+          system_users: systemUsers.length,
+          quotations: quotations.length,
+          customers: customers.length,
+          vehicles: vehicles.length,
+          price_history: priceHistory.length,
+          branch_prices: branchPrices.length,
+          customer_prices: customerPrices.length,
+          discount_requests: discountRequests.length,
+          categories: categories.length,
+          customer_types: customerTypes.length,
+          locations: locations.length,
+          location_configs: locationConfigs.length
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to retrieve database stats: ' + err.message });
+    }
+  });
+
+  app.get('/api/database/backup', (req, res) => {
+    try {
+      const backupData: DatabaseSchema = {
+        products,
+        priceHistory,
+        branches,
+        vehicles,
+        transportRules,
+        locations,
+        quotations,
+        branchPrices,
+        customerPrices,
+        discountRequests,
+        customers,
+        companySettings,
+        systemUsers,
+        categories,
+        customerTypes,
+        locationConfigs
+      };
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=innovista-erp-backup-${Date.now()}.json`);
+      res.json(backupData);
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to generate database backup: ' + err.message });
+    }
+  });
+
+  app.post('/api/database/restore', (req, res) => {
+    try {
+      const data = req.body;
+      if (!data || typeof data !== 'object') {
+        return res.status(400).json({ error: 'Invalid database snapshot object' });
+      }
+
+      if (Array.isArray(data.products)) products = data.products;
+      if (Array.isArray(data.priceHistory)) priceHistory = data.priceHistory;
+      if (Array.isArray(data.branches)) branches = data.branches;
+      if (Array.isArray(data.vehicles)) vehicles = data.vehicles;
+      if (data.transportRules) transportRules = data.transportRules;
+      if (Array.isArray(data.locations)) locations = data.locations;
+      if (Array.isArray(data.quotations)) quotations = data.quotations;
+      if (Array.isArray(data.branchPrices)) branchPrices = data.branchPrices;
+      if (Array.isArray(data.customerPrices)) customerPrices = data.customerPrices;
+      if (Array.isArray(data.discountRequests)) discountRequests = data.discountRequests;
+      if (Array.isArray(data.customers)) customers = data.customers;
+      if (data.companySettings) companySettings = data.companySettings;
+      if (Array.isArray(data.systemUsers)) systemUsers = data.systemUsers;
+      if (Array.isArray(data.categories)) categories = data.categories;
+      if (Array.isArray(data.customerTypes)) customerTypes = data.customerTypes;
+      if (Array.isArray(data.locationConfigs)) locationConfigs = data.locationConfigs;
+
+      saveDatabase();
+
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '🔄 Database Restored',
+        message: 'Master database state successfully restored from backup snapshot.',
+        branch_name: 'All Branches'
+      });
+
+      res.json({ success: true, message: 'Database state successfully restored' });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to restore database: ' + err.message });
+    }
+  });
+
+  app.post('/api/database/reset', (req, res) => {
+    try {
+      products = [...INITIAL_PRODUCTS];
+      priceHistory = [...INITIAL_PRICE_HISTORY];
+      branches = [...INITIAL_BRANCHES];
+      vehicles = [...INITIAL_VEHICLES];
+      transportRules = { ...INITIAL_TRANSPORT_RULES };
+      locations = [...INITIAL_LOCATIONS];
+      quotations = [...INITIAL_QUOTATIONS];
+      branchPrices = [...INITIAL_BRANCH_PRICES];
+      customerPrices = [...INITIAL_CUSTOMER_PRICES];
+      discountRequests = [...INITIAL_DISCOUNT_REQUESTS];
+      customers = [...INITIAL_CUSTOMERS];
+      companySettings = { ...INITIAL_COMPANY_SETTINGS };
+      systemUsers = [...INITIAL_USERS];
+      categories = [...INITIAL_CATEGORIES];
+      customerTypes = [...INITIAL_CUSTOMER_TYPES];
+      locationConfigs = [...INITIAL_LOCATION_CONFIGS];
+
+      saveDatabase();
+
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '⚠️ Database Reset',
+        message: 'Database reset to factory default state by system admin.',
+        branch_name: 'All Branches'
+      });
+
+      res.json({ success: true, message: 'Database reset to factory initial state' });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to reset database: ' + err.message });
+    }
   });
 
   // 7. Real-time Events & SSE Stream Endpoint

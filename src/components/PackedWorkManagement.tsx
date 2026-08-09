@@ -789,6 +789,7 @@ export const PackedWorkManagement: React.FC<PackedWorkManagementProps> = ({
                       />
                     </div>
                     <button
+                      type="button"
                       onClick={handleAddVariantToPackage}
                       disabled={!selectedProdId}
                       className="bg-purple-800 hover:bg-purple-900 disabled:opacity-40 text-white px-4 py-1.5 rounded-md font-bold transition shrink-0"
