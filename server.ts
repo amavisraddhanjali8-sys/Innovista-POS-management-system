@@ -1036,63 +1036,32 @@ async function startServer() {
   });
 
   app.post('/api/users', (req, res) => {
-    const email = (req.body.email || '').trim().toLowerCase();
-    if (email) {
-      const existing = systemUsers.find(u => u.email.trim().toLowerCase() === email);
-      if (existing) {
-        return res.status(400).json({ error: `An account with email "${email}" is already registered in the system.` });
+    try {
+      const email = (req.body.email || '').toString().trim().toLowerCase();
+      const employee_id = (req.body.employee_id || '').toString().trim().toUpperCase();
+
+      if (email || employee_id) {
+        const existing = systemUsers.find(u => 
+          (email && u.email && u.email.toString().trim().toLowerCase() === email) ||
+          (employee_id && u.employee_id && u.employee_id.toString().trim().toUpperCase() === employee_id)
+        );
+        if (existing) {
+          if (email && existing.email && existing.email.toString().trim().toLowerCase() === email) {
+            return res.status(400).json({ error: `An account with email "${email}" is already registered in the system.` });
+          } else {
+            return res.status(400).json({ error: `Employee ID "${employee_id}" is already assigned to an existing account.` });
+          }
+        }
       }
-    }
 
-    const newUser: SystemUser = {
-      id: req.body.id || `user-${Date.now()}`,
-      employee_id: req.body.employee_id || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
-      name: req.body.name || 'New User',
-      email: email,
-      role: req.body.role || 'Sales Executive',
-      branch_id: req.body.branch_id || 'b-ho',
-      branch_name: req.body.branch_name || 'Colombo Head Office (HO)',
-      status: req.body.status || 'Pending Approval',
-      phone: req.body.phone || '',
-      created_at: new Date().toISOString().split('T')[0],
-      last_login: req.body.last_login || 'Never',
-      mustChangePassword: req.body.mustChangePassword !== undefined ? req.body.mustChangePassword : false,
-      mfaEnabled: req.body.mfaEnabled !== undefined ? req.body.mfaEnabled : true,
-      mfaSecret: req.body.mfaSecret || '',
-      mfaBackupCodes: req.body.mfaBackupCodes || [],
-      password: req.body.password,
-      authAuditLogs: req.body.authAuditLogs || []
-    };
-    systemUsers.unshift(newUser);
-    saveDatabase();
-    res.json(newUser);
-  });
-
-  app.put('/api/users/:id', (req, res) => {
-    const { id } = req.params;
-    let idx = systemUsers.findIndex(u => u.id === id);
-    if (idx === -1) {
-      idx = systemUsers.findIndex(u => 
-        (req.body.email && u.email && u.email.trim().toLowerCase() === req.body.email.trim().toLowerCase()) ||
-        (req.body.employee_id && u.employee_id && u.employee_id.trim().toLowerCase() === req.body.employee_id.trim().toLowerCase())
-      );
-    }
-    if (idx !== -1) {
-      systemUsers[idx] = {
-        ...systemUsers[idx],
-        ...req.body
-      };
-      saveDatabase();
-      res.json(systemUsers[idx]);
-    } else {
       const newUser: SystemUser = {
-        id: id,
+        id: req.body.id || `user-${Date.now()}`,
         employee_id: req.body.employee_id || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
-        name: req.body.name || 'User',
-        email: req.body.email || '',
+        name: req.body.name || 'New User',
+        email: email,
         role: req.body.role || 'Sales Executive',
         branch_id: req.body.branch_id || 'b-ho',
-        branch_name: req.body.branch_name || 'Colombo Head Office',
+        branch_name: req.body.branch_name || 'Colombo Head Office (HO)',
         status: req.body.status || 'Active',
         phone: req.body.phone || '',
         created_at: new Date().toISOString().split('T')[0],
@@ -1107,6 +1076,59 @@ async function startServer() {
       systemUsers.unshift(newUser);
       saveDatabase();
       res.json(newUser);
+    } catch (err: any) {
+      console.error('Error creating user in POST /api/users:', err);
+      res.status(500).json({ error: 'Failed to create user account: ' + (err.message || 'Server error') });
+    }
+  });
+
+  app.put('/api/users/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const targetEmail = (req.body.email || '').toString().trim().toLowerCase();
+      const targetEmpId = (req.body.employee_id || '').toString().trim().toLowerCase();
+
+      let idx = systemUsers.findIndex(u => u.id === id);
+      if (idx === -1) {
+        idx = systemUsers.findIndex(u => 
+          (targetEmail && u.email && u.email.toString().trim().toLowerCase() === targetEmail) ||
+          (targetEmpId && u.employee_id && u.employee_id.toString().trim().toLowerCase() === targetEmpId)
+        );
+      }
+      if (idx !== -1) {
+        systemUsers[idx] = {
+          ...systemUsers[idx],
+          ...req.body
+        };
+        saveDatabase();
+        res.json(systemUsers[idx]);
+      } else {
+        const newUser: SystemUser = {
+          id: id,
+          employee_id: req.body.employee_id || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
+          name: req.body.name || 'User',
+          email: req.body.email || '',
+          role: req.body.role || 'Sales Executive',
+          branch_id: req.body.branch_id || 'b-ho',
+          branch_name: req.body.branch_name || 'Colombo Head Office',
+          status: req.body.status || 'Active',
+          phone: req.body.phone || '',
+          created_at: new Date().toISOString().split('T')[0],
+          last_login: req.body.last_login || 'Never',
+          mustChangePassword: req.body.mustChangePassword !== undefined ? req.body.mustChangePassword : false,
+          mfaEnabled: req.body.mfaEnabled !== undefined ? req.body.mfaEnabled : true,
+          mfaSecret: req.body.mfaSecret || '',
+          mfaBackupCodes: req.body.mfaBackupCodes || [],
+          password: req.body.password,
+          authAuditLogs: req.body.authAuditLogs || []
+        };
+        systemUsers.unshift(newUser);
+        saveDatabase();
+        res.json(newUser);
+      }
+    } catch (err: any) {
+      console.error('Error updating user in PUT /api/users/:id:', err);
+      res.status(500).json({ error: 'Failed to update user: ' + (err.message || 'Server error') });
     }
   });
 

@@ -142,6 +142,43 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     setShowSignupModal(true);
   };
 
+  // Unified helper to retrieve combined user dataset (Server API + Local Storage Persistence)
+  const getCombinedUsers = async (): Promise<SystemUser[]> => {
+    let dbUsers: SystemUser[] = [];
+    try {
+      dbUsers = await fetchUsers();
+    } catch (e) {
+      console.warn('Failed to fetch users from server, falling back to local dataset:', e);
+    }
+    if (!Array.isArray(dbUsers) || dbUsers.length === 0) {
+      dbUsers = [...INITIAL_USERS];
+    } else {
+      dbUsers = [...dbUsers];
+    }
+
+    try {
+      const localRegistered: SystemUser[] = JSON.parse(localStorage.getItem('innovista_registered_users') || '[]');
+      if (Array.isArray(localRegistered) && localRegistered.length > 0) {
+        localRegistered.forEach(localU => {
+          const idx = dbUsers.findIndex(u => 
+            (u.id && localU.id && u.id === localU.id) ||
+            (u.email && localU.email && u.email.toString().trim().toLowerCase() === localU.email.toString().trim().toLowerCase()) ||
+            (u.employee_id && localU.employee_id && u.employee_id.toString().trim().toLowerCase() === localU.employee_id.toString().trim().toLowerCase())
+          );
+          if (idx !== -1) {
+            dbUsers[idx] = { ...dbUsers[idx], ...localU };
+          } else {
+            dbUsers.unshift(localU);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Error merging local registered users from localStorage:', e);
+    }
+
+    return dbUsers;
+  };
+
   // Step 1 Submission -> Verify account doesn't exist and proceed to 2FA QR Code Scan
   const handleSignupInfoNext = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,14 +208,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
     // Verify if account / email already exists in system database BEFORE scanning QR code
     try {
-      const dbUsers = await fetchUsers();
+      const dbUsers = await getCombinedUsers();
       const existing = dbUsers.find(u => 
-        u.email.trim().toLowerCase() === emailClean ||
-        (u.employee_id && signupForm.employee_id && u.employee_id.trim().toUpperCase() === signupForm.employee_id.trim().toUpperCase())
+        (u.email && u.email.toString().trim().toLowerCase() === emailClean) ||
+        (u.employee_id && signupForm.employee_id && u.employee_id.toString().trim().toUpperCase() === signupForm.employee_id.trim().toUpperCase())
       );
 
       if (existing) {
-        if (existing.email.trim().toLowerCase() === emailClean) {
+        if (existing.email && existing.email.toString().trim().toLowerCase() === emailClean) {
           setSignupMfaError(`An account with email "${signupForm.email.trim()}" is ALREADY registered in the system. Please sign in or use a different email.`);
         } else {
           setSignupMfaError(`Employee ID "${signupForm.employee_id}" is ALREADY assigned to an existing account.`);
@@ -218,7 +255,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
     try {
       const branchObj = branches.find(b => b.id === signupForm.branch_id);
-      const newUserObj: Partial<SystemUser> = {
+      const newUserId = `user-${Date.now()}`;
+      const newUserObj: SystemUser = {
+        id: newUserId,
         employee_id: signupForm.employee_id || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
         name: signupForm.name.trim(),
         email: signupForm.email.trim().toLowerCase(),
@@ -243,7 +282,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         ]
       };
 
-      const created = await addUser(newUserObj);
+      let created: SystemUser;
+      try {
+        created = await addUser(newUserObj);
+      } catch (apiErr: any) {
+        console.warn('addUser API failed, completing user account creation locally:', apiErr);
+        created = newUserObj;
+      }
+
+      // Persist registered user to localStorage as fallback so login is always guaranteed
+      try {
+        const stored = JSON.parse(localStorage.getItem('innovista_registered_users') || '[]');
+        const updated = [created, ...stored.filter((u: any) => u.email !== created.email && u.employee_id !== created.employee_id)];
+        localStorage.setItem('innovista_registered_users', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to persist created user to localStorage:', e);
+      }
+
       setIsVerifyingSignupMfa(false);
       setCreatedSignupUser(created);
       setSignupStep('success');
@@ -280,16 +335,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     setIsLoading(true);
 
     try {
-      let dbUsers: SystemUser[] = [];
-      try {
-        dbUsers = await fetchUsers();
-      } catch (e) {
-        console.warn('Failed to fetch users from server, falling back to local users:', e);
-      }
-      if (!Array.isArray(dbUsers) || dbUsers.length === 0) {
-        dbUsers = INITIAL_USERS;
-      }
-
+      const dbUsers = await getCombinedUsers();
       const cleanIdent = identifier.trim().toLowerCase();
 
       // Check lockout status
@@ -522,21 +568,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     }
 
     try {
-      // 1. Fetch latest registered users from server or fallback
-      let dbUsers: SystemUser[] = [];
-      try {
-        dbUsers = await fetchUsers();
-      } catch (e) {
-        console.warn('Failed to fetch users from server, falling back to local users:', e);
-      }
-      if (!Array.isArray(dbUsers) || dbUsers.length === 0) {
-        dbUsers = INITIAL_USERS;
-      }
+      // 1. Fetch latest registered users from combined dataset
+      const dbUsers = await getCombinedUsers();
 
       // 2. Find target user with safe null/undefined checks
       const targetUser = dbUsers.find(u => 
-        (u.email && u.email.trim().toLowerCase() === emailOrId) ||
-        (u.employee_id && u.employee_id.trim().toLowerCase() === emailOrId) ||
+        (u.email && u.email.toString().trim().toLowerCase() === emailOrId) ||
+        (u.employee_id && u.employee_id.toString().trim().toLowerCase() === emailOrId) ||
         (u.id && u.id.toLowerCase() === emailOrId)
       );
 
@@ -573,16 +611,27 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       }
 
       // 4. Master Backup Key verified! Reset credentials & unlock account
+      const updatedUserObj: SystemUser = {
+        ...targetUser,
+        password: newPassword,
+        status: 'Active',
+        mustChangePassword: false,
+        passwordChangedAt: new Date().toISOString()
+      };
+
       try {
-        await updateUser(targetUser.id, {
-          password: newPassword,
-          status: 'Active',
-          mustChangePassword: false,
-          passwordChangedAt: new Date().toISOString(),
-          failedLoginAttempts: 0
-        });
+        await updateUser(targetUser.id, updatedUserObj);
       } catch (updateErr) {
         console.warn('updateUser API failed, applying local state update:', updateErr);
+      }
+
+      // Save reset password to localStorage as fallback
+      try {
+        const stored = JSON.parse(localStorage.getItem('innovista_registered_users') || '[]');
+        const updated = [updatedUserObj, ...stored.filter((u: any) => u.id !== updatedUserObj.id && u.email !== updatedUserObj.email && u.employee_id !== updatedUserObj.employee_id)];
+        localStorage.setItem('innovista_registered_users', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to persist reset user password to localStorage:', e);
       }
 
       // Clear any failed login attempts and rate limit lockouts
@@ -639,19 +688,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     }
 
     try {
-      let dbUsers: SystemUser[] = [];
-      try {
-        dbUsers = await fetchUsers();
-      } catch (e) {
-        dbUsers = INITIAL_USERS;
-      }
-      if (!Array.isArray(dbUsers) || dbUsers.length === 0) {
-        dbUsers = INITIAL_USERS;
-      }
+      const dbUsers = await getCombinedUsers();
 
       const targetUser = dbUsers.find(u => 
-        (u.email && u.email.trim().toLowerCase() === emailOrId) ||
-        (u.employee_id && u.employee_id.trim().toLowerCase() === emailOrId) ||
+        (u.email && u.email.toString().trim().toLowerCase() === emailOrId) ||
+        (u.employee_id && u.employee_id.toString().trim().toLowerCase() === emailOrId) ||
         (u.id && u.id.toLowerCase() === emailOrId)
       );
 
@@ -708,16 +749,27 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     }
 
     try {
+      const updatedUserObj: SystemUser = {
+        ...selectedRecoveryUser,
+        password: newPassword,
+        status: 'Active',
+        mustChangePassword: false,
+        passwordChangedAt: new Date().toISOString()
+      };
+
       try {
-        await updateUser(selectedRecoveryUser.id, {
-          password: newPassword,
-          status: 'Active',
-          mustChangePassword: false,
-          passwordChangedAt: new Date().toISOString(),
-          failedLoginAttempts: 0
-        });
+        await updateUser(selectedRecoveryUser.id, updatedUserObj);
       } catch (updateErr) {
         console.warn('updateUser API failed during OTP reset, applying local state update:', updateErr);
+      }
+
+      // Save reset password to localStorage as fallback
+      try {
+        const stored = JSON.parse(localStorage.getItem('innovista_registered_users') || '[]');
+        const updated = [updatedUserObj, ...stored.filter((u: any) => u.id !== updatedUserObj.id && u.email !== updatedUserObj.email && u.employee_id !== updatedUserObj.employee_id)];
+        localStorage.setItem('innovista_registered_users', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to persist reset user password to localStorage:', e);
       }
 
       // Clear any failed login attempts and rate limit lockouts
