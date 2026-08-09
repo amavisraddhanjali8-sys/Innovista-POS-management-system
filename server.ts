@@ -75,13 +75,20 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // Prevent caching of API responses
+  // Prevent caching of API responses and allow cross-origin requests from any browser domain
   app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
     next();
   });
 
@@ -108,22 +115,23 @@ async function startServer() {
       try {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const data = JSON.parse(raw);
-        products = Array.isArray(data.products) ? data.products : [];
-        priceHistory = Array.isArray(data.priceHistory) ? data.priceHistory : [];
-        branches = Array.isArray(data.branches) ? data.branches : [...INITIAL_BRANCHES];
-        vehicles = Array.isArray(data.vehicles) ? data.vehicles : [...INITIAL_VEHICLES];
+        products = Array.isArray(data.products) && data.products.length > 0 ? data.products : [...INITIAL_PRODUCTS];
+        priceHistory = Array.isArray(data.priceHistory) && data.priceHistory.length > 0 ? data.priceHistory : [...INITIAL_PRICE_HISTORY];
+        branches = Array.isArray(data.branches) && data.branches.length > 0 ? data.branches : [...INITIAL_BRANCHES];
+        vehicles = Array.isArray(data.vehicles) && data.vehicles.length > 0 ? data.vehicles : [...INITIAL_VEHICLES];
         transportRules = data.transportRules || { ...INITIAL_TRANSPORT_RULES };
-        locations = Array.isArray(data.locations) ? data.locations : [];
-        quotations = Array.isArray(data.quotations) ? data.quotations : [];
-        branchPrices = Array.isArray(data.branchPrices) ? data.branchPrices : [];
-        customerPrices = Array.isArray(data.customerPrices) ? data.customerPrices : [];
-        discountRequests = Array.isArray(data.discountRequests) ? data.discountRequests : [];
-        customers = Array.isArray(data.customers) ? data.customers : [];
+        locations = Array.isArray(data.locations) && data.locations.length > 0 ? data.locations : [...INITIAL_LOCATIONS];
+        quotations = Array.isArray(data.quotations) ? data.quotations : [...INITIAL_QUOTATIONS];
+        branchPrices = Array.isArray(data.branchPrices) ? data.branchPrices : [...INITIAL_BRANCH_PRICES];
+        customerPrices = Array.isArray(data.customerPrices) ? data.customerPrices : [...INITIAL_CUSTOMER_PRICES];
+        discountRequests = Array.isArray(data.discountRequests) ? data.discountRequests : [...INITIAL_DISCOUNT_REQUESTS];
+        customers = Array.isArray(data.customers) && data.customers.length > 0 ? data.customers : [...INITIAL_CUSTOMERS];
         companySettings = data.companySettings ? { ...INITIAL_COMPANY_SETTINGS, ...data.companySettings } : { ...INITIAL_COMPANY_SETTINGS };
-        systemUsers = Array.isArray(data.systemUsers) ? data.systemUsers : [...INITIAL_USERS];
-        categories = Array.isArray(data.categories) ? data.categories : [...INITIAL_CATEGORIES];
-        customerTypes = Array.isArray(data.customerTypes) ? data.customerTypes : [...INITIAL_CUSTOMER_TYPES];
-        locationConfigs = Array.isArray(data.locationConfigs) ? data.locationConfigs : [...INITIAL_LOCATION_CONFIGS];
+        systemUsers = Array.isArray(data.systemUsers) && data.systemUsers.length > 0 ? data.systemUsers : [...INITIAL_USERS];
+        categories = Array.isArray(data.categories) && data.categories.length > 0 ? data.categories : [...INITIAL_CATEGORIES];
+        customerTypes = Array.isArray(data.customerTypes) && data.customerTypes.length > 0 ? data.customerTypes : [...INITIAL_CUSTOMER_TYPES];
+        locationConfigs = Array.isArray(data.locationConfigs) && data.locationConfigs.length > 0 ? data.locationConfigs : [...INITIAL_LOCATION_CONFIGS];
+        saveDatabase();
         return;
       } catch (err) {
         console.error('Failed to parse db.json, falling back to defaults:', err);
@@ -673,8 +681,16 @@ async function startServer() {
 
   app.delete('/api/products/:id', (req, res) => {
     const { id } = req.params;
-    products = products.filter(p => p.id !== id);
+    const deletedProduct = products.find(p => p.id === id || p.product_code === id);
+    products = products.filter(p => p.id !== id && p.product_code !== id);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🗑️ Product Deleted',
+      message: `Product ${deletedProduct ? deletedProduct.product_code : id} removed from catalog database`,
+      product_code: deletedProduct?.product_code,
+      branch_name: 'Head Office'
+    });
     res.json({ success: true, id });
   });
 
@@ -998,6 +1014,12 @@ async function startServer() {
     };
     customers.unshift(newCust);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '👤 Customer Account Registered',
+      message: `Customer ${newCust.name} (${newCust.customer_type}) added to customer master database`,
+      branch_name: newCust.district_region || 'Central'
+    });
     res.json(newCust);
   });
 
@@ -1007,6 +1029,12 @@ async function startServer() {
     if (idx !== -1) {
       customers[idx] = { ...customers[idx], ...req.body };
       saveDatabase();
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '✏️ Customer Profile Updated',
+        message: `Customer profile ${customers[idx].name} updated in master database`,
+        branch_name: customers[idx].district_region || 'Central'
+      });
       res.json(customers[idx]);
     } else {
       res.status(404).json({ error: 'Customer not found' });
@@ -1017,6 +1045,12 @@ async function startServer() {
     const { id } = req.params;
     customers = customers.filter(c => c.id !== id);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🗑️ Customer Account Removed',
+      message: `Customer account ${id} removed from database`,
+      branch_name: 'Central'
+    });
     res.json({ success: true, id });
   });
 
@@ -1028,6 +1062,12 @@ async function startServer() {
   app.post('/api/company-settings', (req, res) => {
     companySettings = { ...companySettings, ...req.body };
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '⚙️ Company Profile & Settings Updated',
+      message: `Enterprise master settings updated by administrator`,
+      branch_name: 'Head Office'
+    });
     res.json(companySettings);
   });
 
@@ -1076,6 +1116,12 @@ async function startServer() {
       };
       systemUsers.unshift(newUser);
       saveDatabase();
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '🔑 System User Created',
+        message: `User ${newUser.name} (${newUser.role}) provisioned for ${newUser.branch_name}`,
+        branch_name: newUser.branch_name
+      });
       res.json(newUser);
     } catch (err: any) {
       console.error('Error creating user in POST /api/users:', err);
@@ -1102,6 +1148,12 @@ async function startServer() {
           ...req.body
         };
         saveDatabase();
+        broadcastEvent({
+          type: 'PRICE_UPDATE',
+          title: '👤 User Profile Updated',
+          message: `Account details updated for ${systemUsers[idx].name}`,
+          branch_name: systemUsers[idx].branch_name
+        });
         res.json(systemUsers[idx]);
       } else {
         const newUser: SystemUser = {
@@ -1125,6 +1177,12 @@ async function startServer() {
         };
         systemUsers.unshift(newUser);
         saveDatabase();
+        broadcastEvent({
+          type: 'PRICE_UPDATE',
+          title: '🔑 System User Created',
+          message: `User ${newUser.name} (${newUser.role}) provisioned for ${newUser.branch_name}`,
+          branch_name: newUser.branch_name
+        });
         res.json(newUser);
       }
     } catch (err: any) {
@@ -1140,6 +1198,12 @@ async function startServer() {
     if (user) {
       user.status = status;
       saveDatabase();
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '🔒 User Status Changed',
+        message: `User ${user.name} status updated to ${status}`,
+        branch_name: user.branch_name
+      });
       res.json(user);
     } else {
       res.status(404).json({ error: 'User not found' });
@@ -1150,6 +1214,12 @@ async function startServer() {
     const { id } = req.params;
     systemUsers = systemUsers.filter(u => u.id !== id);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🗑️ User Account Deleted',
+      message: `User account ${id} removed from authorization matrix`,
+      branch_name: 'Head Office'
+    });
     res.json({ success: true, id });
   });
 
@@ -1173,6 +1243,12 @@ async function startServer() {
     user.mustChangePassword = false;
     user.passwordChangedAt = new Date().toISOString();
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🔑 Security Password Updated',
+      message: `Account security password updated for user ${user.name}`,
+      branch_name: user.branch_name
+    });
 
     res.json(user);
   });
@@ -1192,6 +1268,12 @@ async function startServer() {
     };
     categories.unshift(newCat);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '📁 Category Created',
+      message: `New category ${newCat.name} configured in master taxonomy`,
+      branch_name: 'Head Office'
+    });
     res.json(newCat);
   });
 
@@ -1201,6 +1283,12 @@ async function startServer() {
     if (idx !== -1) {
       categories[idx] = { ...categories[idx], ...req.body };
       saveDatabase();
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '📁 Category Updated',
+        message: `Taxonomy category ${categories[idx].name} updated`,
+        branch_name: 'Head Office'
+      });
       res.json(categories[idx]);
     } else {
       res.status(404).json({ error: 'Category not found' });
@@ -1211,6 +1299,12 @@ async function startServer() {
     const { id } = req.params;
     categories = categories.filter(c => c.id !== id);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🗑️ Category Deleted',
+      message: `Taxonomy category ${id} removed`,
+      branch_name: 'Head Office'
+    });
     res.json({ success: true, id });
   });
 
@@ -1228,6 +1322,12 @@ async function startServer() {
     };
     customerTypes.unshift(newCt);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🏷️ Customer Tier Added',
+      message: `Customer tier ${newCt.name} configured`,
+      branch_name: 'Head Office'
+    });
     res.json(newCt);
   });
 
@@ -1237,6 +1337,12 @@ async function startServer() {
     if (idx !== -1) {
       customerTypes[idx] = { ...customerTypes[idx], ...req.body };
       saveDatabase();
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '🏷️ Customer Tier Updated',
+        message: `Customer tier ${customerTypes[idx].name} updated`,
+        branch_name: 'Head Office'
+      });
       res.json(customerTypes[idx]);
     } else {
       res.status(404).json({ error: 'Customer type not found' });
@@ -1247,6 +1353,12 @@ async function startServer() {
     const { id } = req.params;
     customerTypes = customerTypes.filter(ct => ct.id !== id);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🗑️ Customer Tier Removed',
+      message: `Customer tier ${id} deleted`,
+      branch_name: 'Head Office'
+    });
     res.json({ success: true, id });
   });
 
@@ -1265,6 +1377,12 @@ async function startServer() {
     };
     locationConfigs.unshift(newLoc);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '📍 Location Zone Configured',
+      message: `Location zone ${newLoc.name} added`,
+      branch_name: 'Head Office'
+    });
     res.json(newLoc);
   });
 
@@ -1274,6 +1392,12 @@ async function startServer() {
     if (idx !== -1) {
       locationConfigs[idx] = { ...locationConfigs[idx], ...req.body };
       saveDatabase();
+      broadcastEvent({
+        type: 'PRICE_UPDATE',
+        title: '📍 Location Zone Updated',
+        message: `Location zone ${locationConfigs[idx].name} updated`,
+        branch_name: 'Head Office'
+      });
       res.json(locationConfigs[idx]);
     } else {
       res.status(404).json({ error: 'Location config not found' });
@@ -1284,6 +1408,12 @@ async function startServer() {
     const { id } = req.params;
     locationConfigs = locationConfigs.filter(l => l.id !== id);
     saveDatabase();
+    broadcastEvent({
+      type: 'PRICE_UPDATE',
+      title: '🗑️ Location Zone Removed',
+      message: `Location zone ${id} deleted`,
+      branch_name: 'Head Office'
+    });
     res.json({ success: true, id });
   });
 

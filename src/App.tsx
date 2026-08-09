@@ -440,32 +440,25 @@ export default function App() {
     loadInitialData();
   }, []);
 
-  // Subscribe to Real-Time SSE Stream for Instant Push Updates
+  // Subscribe to Real-Time SSE Stream for Instant Push Updates across all browsers
   useEffect(() => {
     const unsubscribe = subscribeToRealTimeEvents((evt) => {
       setEvents((prev) => [evt, ...prev.slice(0, 49)]);
       setUnreadCount((c) => c + 1);
 
-      // Refresh master products and overrides whenever price/approval events occur
-      if (evt.type === 'PRICE_UPDATE' || evt.type === 'PRICE_PROPOSAL') {
-        fetchProducts().then(setProducts);
-        fetchPriceHistory().then(setHistory);
-        fetchBranchPrices().then(setBranchPrices);
-        fetchCustomerPrices().then(setCustomerPrices);
-        fetchDiscountRequests().then(setDiscountRequests);
-        fetchBranches().then(setBranches);
-        fetchQuotations().then(setQuotations);
-      }
-      if (evt.type === 'NEW_QUOTATION') {
-        fetchQuotations().then(setQuotations);
-      }
-      if (evt.type === 'TRANSPORT_RULE_CHANGE') {
-        fetchVehicles().then(setVehicles);
-        fetchTransportRules().then(setRules);
-      }
+      // Automatically re-sync all database state on any real-time backend update event
+      loadInitialData();
     });
 
-    return () => unsubscribe();
+    // Periodic auto-sync interval (every 12s) as fail-safe across network switches
+    const pollInterval = setInterval(() => {
+      loadInitialData();
+    }, 12000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(pollInterval);
+    };
   }, []);
 
   // Handlers
