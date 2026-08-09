@@ -77,7 +77,7 @@ export async function generateTotpCode(secret: string, timeStepOffset = 0): Prom
   } catch (err) {
     console.error('TOTP computation error:', err);
   }
-  return '123456';
+  return '';
 }
 
 // Verify TOTP Code against secret with time window tolerance

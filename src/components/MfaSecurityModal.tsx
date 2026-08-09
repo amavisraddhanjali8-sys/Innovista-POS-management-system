@@ -99,7 +99,7 @@ export const MfaSecurityModal: React.FC<MfaSecurityModalProps> = ({
     setIsVerifying(false);
 
     if (!isValid) {
-      setVerificationError('Invalid 6-digit passcode. Please check your Authenticator App time and try again (or enter demo code 123456).');
+      setVerificationError('Invalid 6-digit passcode. Please check your Google Authenticator app and try again.');
       return;
     }
 
@@ -361,13 +361,13 @@ export const MfaSecurityModal: React.FC<MfaSecurityModalProps> = ({
                           type="text"
                           required
                           maxLength={6}
-                          placeholder="e.g. 123456"
+                          placeholder="000 000"
                           value={verificationCode}
                           onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
                           className="w-full bg-slate-50 border border-slate-300 focus:border-[#E87F24] focus:bg-white text-base font-mono font-extrabold text-center tracking-widest p-2.5 rounded-xl"
                         />
                         <p className="text-[10px] text-slate-500 mt-1">
-                          💡 Enter the code from Google Authenticator (or use demo code <span className="font-mono font-bold text-[#E87F24]">123456</span>).
+                          💡 Enter the live 6-digit passcode generated in Google Authenticator.
                         </p>
                       </div>
 

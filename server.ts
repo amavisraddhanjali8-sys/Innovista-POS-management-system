@@ -1038,16 +1038,22 @@ async function startServer() {
   app.post('/api/users', (req, res) => {
     const newUser: SystemUser = {
       id: req.body.id || `user-${Date.now()}`,
+      employee_id: req.body.employee_id || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
       name: req.body.name || 'New User',
       email: req.body.email || '',
       role: req.body.role || 'Sales Executive',
       branch_id: req.body.branch_id || 'b-ho',
       branch_name: req.body.branch_name || 'Colombo Head Office (HO)',
-      status: req.body.status || 'Active',
+      status: req.body.status || 'Pending Approval',
       phone: req.body.phone || '',
       created_at: new Date().toISOString().split('T')[0],
-      last_login: 'Never',
-      mustChangePassword: true
+      last_login: req.body.last_login || 'Never',
+      mustChangePassword: req.body.mustChangePassword !== undefined ? req.body.mustChangePassword : false,
+      mfaEnabled: req.body.mfaEnabled !== undefined ? req.body.mfaEnabled : true,
+      mfaSecret: req.body.mfaSecret || '',
+      mfaBackupCodes: req.body.mfaBackupCodes || [],
+      password: req.body.password,
+      authAuditLogs: req.body.authAuditLogs || []
     };
     systemUsers.unshift(newUser);
     saveDatabase();
@@ -1060,12 +1066,7 @@ async function startServer() {
     if (idx !== -1) {
       systemUsers[idx] = {
         ...systemUsers[idx],
-        name: req.body.name || systemUsers[idx].name,
-        email: req.body.email || systemUsers[idx].email,
-        role: req.body.role || systemUsers[idx].role,
-        branch_id: req.body.branch_id || systemUsers[idx].branch_id,
-        branch_name: req.body.branch_name || systemUsers[idx].branch_name,
-        phone: req.body.phone !== undefined ? req.body.phone : systemUsers[idx].phone
+        ...req.body
       };
       saveDatabase();
       res.json(systemUsers[idx]);

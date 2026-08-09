@@ -42,6 +42,7 @@ import {
   PieChart as PieChartIcon,
   Power,
   Lock,
+  Key,
   KeyRound,
   Eye,
   EyeOff,
@@ -643,6 +644,7 @@ Outstation Long-Haul Logistics,PRESET-OUTSTATION,Facility,Fixed LKR,3500,1.0,1.0
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
 
   // Head Office Emergency Master Backup Recovery Key Management States
+  const [view2FaUser, setView2FaUser] = useState<SystemUser | null>(null);
   const [showBackupKeySecret, setShowBackupKeySecret] = useState<boolean>(false);
   const [isBackupKeyModalOpen, setIsBackupKeyModalOpen] = useState<boolean>(false);
   const [backupKeyInput, setBackupKeyInput] = useState<string>('');
@@ -3599,18 +3601,29 @@ Outstation Long-Haul Logistics,PRESET-OUTSTATION,Facility,Fixed LKR,3500,1.0,1.0
 
                             {/* Emergency Account Recovery button for HO Admins */}
                             {isHeadOfficeUser && (
-                              <button
-                                onClick={() => {
-                                  setEmergencyResetUser(u);
-                                  setEmergencyResetKeyInput(company.ho_backup_key || '');
-                                  setEmergencyResetError(null);
-                                }}
-                                className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold px-2 py-1 rounded transition inline-flex items-center space-x-1 cursor-pointer"
-                                title="Emergency Account Reset via HO Master Backup Key"
-                              >
-                                <KeyRound className="w-3 h-3 text-rose-600" />
-                                <span>Emergency Reset</span>
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => setView2FaUser(u)}
+                                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[10px] font-bold px-2 py-1 rounded transition inline-flex items-center space-x-1 cursor-pointer"
+                                  title="View User 2FA Secret Key & Emergency Backup Recovery Keys"
+                                >
+                                  <ShieldCheck className="w-3 h-3 text-orange-500" />
+                                  <span>2FA Keys</span>
+                                </button>
+
+                                <button
+                                  onClick={() => {
+                                    setEmergencyResetUser(u);
+                                    setEmergencyResetKeyInput(company.ho_backup_key || '');
+                                    setEmergencyResetError(null);
+                                  }}
+                                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold px-2 py-1 rounded transition inline-flex items-center space-x-1 cursor-pointer"
+                                  title="Emergency Account Reset via HO Master Backup Key"
+                                >
+                                  <KeyRound className="w-3 h-3 text-rose-600" />
+                                  <span>Emergency Reset</span>
+                                </button>
+                              </>
                             )}
 
                             <button
@@ -5682,6 +5695,126 @@ Outstation Long-Haul Logistics,PRESET-OUTSTATION,Facility,Fixed LKR,3500,1.0,1.0
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: VIEW USER 2FA SECURITY KEYS & BACKUP CODES (HEAD OFFICE ADMIN ONLY) */}
+      {view2FaUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden text-slate-900 animate-in zoom-in-95 duration-200">
+            <div className="bg-[#0F203C] p-4 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <ShieldCheck className="w-5 h-5 text-[#FFC81E]" />
+                <div>
+                  <h3 className="font-extrabold text-sm text-white">2FA Security Keys & Backup Codes</h3>
+                  <p className="text-[10px] text-[#73A5CA]">Head Office Admin Exclusive Access</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setView2FaUser(null)}
+                className="p-1 hover:bg-white/20 rounded-lg text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">USER ACCOUNT:</span>
+                  <div className="font-bold text-slate-900 text-sm flex items-center space-x-2">
+                    <span>{view2FaUser.name}</span>
+                    {view2FaUser.employee_id && (
+                      <span className="text-[9px] font-mono font-bold text-orange-700 bg-orange-50 border border-orange-200 px-1.5 py-0.2 rounded">
+                        {view2FaUser.employee_id}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-600">{view2FaUser.email} • {view2FaUser.role}</div>
+                </div>
+                <div className="text-right">
+                  <span className={`inline-block px-2.5 py-0.5 rounded text-[10px] font-extrabold ${
+                    view2FaUser.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {view2FaUser.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Secret Key Display */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 uppercase">2FA Secret Key (Manual Entry):</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(view2FaUser.mfaSecret || 'JBSWY3DPEHPK3PXP');
+                      alert('2FA Secret Key copied to clipboard!');
+                    }}
+                    className="text-[10px] font-bold text-orange-600 hover:text-orange-700 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Secret</span>
+                  </button>
+                </div>
+                <div className="p-2.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-center tracking-widest text-slate-900 text-xs select-all">
+                  {(view2FaUser.mfaSecret || 'JBSWY3DPEHPK3PXP').replace(/(.{4})/g, '$1 ').trim()}
+                </div>
+              </div>
+
+              {/* Emergency Backup Recovery Codes */}
+              <div className="p-3.5 bg-rose-50/60 border border-rose-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-rose-900 uppercase flex items-center space-x-1">
+                    <Key className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Emergency Backup Recovery Keys:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const codes = view2FaUser.mfaBackupCodes && view2FaUser.mfaBackupCodes.length > 0 
+                        ? view2FaUser.mfaBackupCodes.join('\n') 
+                        : 'S8FG-PH2F\nZZ2L-CVZS\n3CAY-EM67\n5HQ7-XB6S\n5XX4-Q8BX\n5S72-H6XX';
+                      navigator.clipboard.writeText(codes);
+                      alert('All Emergency Backup Keys copied to clipboard!');
+                    }}
+                    className="text-[10px] font-bold text-rose-700 hover:text-rose-900 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy All</span>
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-center font-mono font-bold text-[11px] text-rose-950">
+                  {(view2FaUser.mfaBackupCodes && view2FaUser.mfaBackupCodes.length > 0 
+                    ? view2FaUser.mfaBackupCodes 
+                    : ['S8FG-PH2F', 'ZZ2L-CVZS', '3CAY-EM67', '5HQ7-XB6S', '5XX4-Q8BX', '5S72-H6XX']
+                  ).map((code, idx) => (
+                    <div key={idx} className="bg-white p-1.5 rounded border border-rose-200 shadow-2xs">
+                      {code}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-amber-900 text-[11px] flex items-start space-x-2">
+                <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Head Office Security Policy:</strong> Emergency backup keys are strictly restricted to Head Office Administrators for account recovery and 2FA user support.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setView2FaUser(null)}
+                  className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -181,14 +181,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       return;
     }
 
-    // Validate TOTP code using RFC 6238 time steps or backup codes or demo code
+    // Validate TOTP code using RFC 6238 time steps or backup codes
     const isBackupUsed = signupBackupCodes.map(c => c.replace('-', '')).includes(cleanCode.toUpperCase().replace('-', ''));
     const isValidTotp = await verifyTotpCode(signupSecret, cleanCode, signupBackupCodes);
-    const isDemoCode = cleanCode === '123456' || cleanCode === '888888';
 
-    if (!isValidTotp && !isDemoCode && !isBackupUsed) {
+    if (!isValidTotp && !isBackupUsed) {
       setIsVerifyingSignupMfa(false);
-      setSignupMfaError('Invalid 6-digit Authenticator code. Please check your phone or use demo code 123456.');
+      setSignupMfaError('Invalid 6-digit Authenticator code. Please enter the live 6-digit code from Google Authenticator on your phone.');
       return;
     }
 
@@ -202,7 +201,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         role: signupForm.role,
         branch_id: signupForm.branch_id,
         branch_name: branchObj ? branchObj.name : 'Colombo Head Office',
-        status: 'Active',
+        status: 'Pending Approval',
         mfaEnabled: true,
         mfaSecret: signupSecret,
         mfaBackupCodes: signupBackupCodes,
@@ -212,7 +211,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
           {
             id: `audit-${Date.now()}`,
             timestamp: new Date().toLocaleString(),
-            action: 'Account Registration & Unique Google Authenticator 2FA Bound',
+            action: 'Account Registration & 2FA Bound (Awaiting Head Office Admin Signoff)',
             ipAddress: '127.0.0.1',
             device: 'Desktop Web Client - Self Registration'
           }
@@ -392,7 +391,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     setIsVerifyingMfa(false);
 
     if (!isValid) {
-      setMfaErrorMsg('Invalid 6-digit Authenticator code or backup key. Try demo code 123456 or 888888.');
+      setMfaErrorMsg('Invalid 6-digit Authenticator code or backup key. Please check Google Authenticator on your phone.');
       return;
     }
 
@@ -489,7 +488,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
   const handleVerifyOtpCode = (e: React.FormEvent) => {
     e.preventDefault();
-    if (userEnteredOtp.trim() === simulatedOtpCode || userEnteredOtp.trim() === '123456') {
+    if (userEnteredOtp.trim() === simulatedOtpCode) {
       setRecoveryStep('reset');
     } else {
       alert('Invalid 6-digit recovery OTP code. Please enter ' + simulatedOtpCode);
@@ -905,14 +904,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                   <input
                     type="text"
                     required
-                    placeholder="e.g. 123456 or A9HF-4K28"
+                    placeholder="Enter 6-digit passcode"
                     value={mfaCodeInput}
                     onChange={(e) => setMfaCodeInput(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 focus:border-[#E87F24] focus:bg-white text-lg font-mono font-extrabold text-center tracking-wider p-3 rounded-xl"
                   />
-                  <p className="text-[10px] text-slate-500 mt-1.5 text-center">
-                    💡 Demo test codes: <span className="font-mono font-bold text-[#E87F24]">123456</span> or <span className="font-mono font-bold text-[#E87F24]">888888</span>.
-                  </p>
                 </div>
 
                 <div className="flex items-center space-x-2 pt-2">
@@ -1670,11 +1666,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                   </div>
 
                   {/* QR Code Container */}
-                  <div className="flex flex-col items-center justify-center p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                  <div className="flex flex-col items-center justify-center p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                     <div className="p-3 bg-white rounded-xl border border-slate-300 shadow-md">
                       <QRCodeSVG
                         value={generateOtpAuthUrl(signupForm.email || 'user@innovistapos.lk', signupSecret, 'InnovistaPOS')}
-                        size={180}
+                        size={190}
                         level="H"
                         includeMargin={true}
                         className="mx-auto rounded-lg"
@@ -1688,64 +1684,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                     </div>
                   </div>
 
-                  {/* Secret Key Manual Copy Fallback */}
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-700 uppercase">Manual Entry Secret Key:</span>
-                      <button
-                        type="button"
-                        onClick={handleCopySignupSecret}
-                        className="text-[11px] font-bold text-orange-600 hover:text-orange-700 flex items-center space-x-1 cursor-pointer"
-                      >
-                        {copiedSignupSecret ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            <span className="text-emerald-600">Copied Key!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copy Secret</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <div className="p-2 bg-white border border-slate-300 rounded-lg font-mono font-bold text-center tracking-widest text-slate-900 select-all text-xs">
-                      {signupSecret.replace(/(.{4})/g, '$1 ').trim()}
-                    </div>
-                  </div>
-
-                  {/* Emergency Backup Codes Box */}
-                  <div className="p-3 bg-rose-50/60 border border-rose-200 rounded-xl space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-rose-900 uppercase flex items-center space-x-1">
-                        <Key className="w-3.5 h-3.5 text-rose-600" />
-                        <span>Emergency Backup Recovery Keys:</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleCopySignupBackupCodes}
-                        className="text-[11px] font-bold text-rose-700 hover:text-rose-900 flex items-center space-x-1 cursor-pointer"
-                      >
-                        {copiedSignupBackup ? (
-                          <span className="text-emerald-700">Copied All Keys!</span>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copy All</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1.5 text-center font-mono font-bold text-[11px] text-rose-950">
-                      {signupBackupCodes.map((code, idx) => (
-                        <div key={idx} className="bg-white p-1 rounded border border-rose-200 shadow-2xs">
-                          {code}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* TOTP 6-Digit Code Verification Input */}
                   <div className="space-y-1.5 pt-1">
                     <label className="text-xs font-bold text-slate-800 block uppercase">
@@ -1755,14 +1693,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                       type="text"
                       required
                       maxLength={8}
-                      placeholder="e.g. 123456"
+                      placeholder="000 000"
                       value={signupTotpCode}
                       onChange={(e) => setSignupTotpCode(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-300 focus:border-[#E87F24] focus:bg-white text-xl font-mono font-extrabold text-center tracking-widest p-3 rounded-xl shadow-inner text-slate-900"
                     />
-                    <p className="text-[10px] text-slate-500 text-center font-medium">
-                      Testing without phone? Enter demo verification code <strong className="text-slate-800 font-mono">123456</strong> or <strong className="text-slate-800 font-mono">888888</strong>.
-                    </p>
                   </div>
 
                   <div className="pt-3 flex items-center justify-between border-t border-slate-200">
@@ -1779,11 +1714,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                       className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-extrabold shadow-md transition flex items-center space-x-2 cursor-pointer disabled:opacity-50"
                     >
                       {isVerifyingSignupMfa ? (
-                        <span>Verifying QR & Binding...</span>
+                        <span>Verifying QR & Submitting...</span>
                       ) : (
                         <>
                           <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                          <span>VERIFY CODE & ACTIVATE ACCOUNT</span>
+                          <span>VERIFY CODE & REGISTER</span>
                         </>
                       )}
                     </button>
@@ -1791,18 +1726,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                 </form>
               )}
 
-              {/* STEP 3: Registration Success Confirmation */}
+              {/* STEP 3: Registration Success Confirmation & Admin Approval Required Notice */}
               {signupStep === 'success' && createdSignupUser && (
                 <div className="text-center space-y-5 py-3">
-                  <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto border-4 border-emerald-50 shadow-md">
-                    <CheckCircle2 className="w-9 h-9" />
+                  <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto border-4 border-amber-50 shadow-md animate-pulse">
+                    <ShieldAlert className="w-9 h-9" />
                   </div>
 
                   <div className="space-y-1">
-                    <h3 className="text-lg font-extrabold text-slate-900">Google Authenticator Bound!</h3>
+                    <h3 className="text-lg font-extrabold text-slate-900">Registration Submitted!</h3>
                     <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                      Your system account has been successfully created and bound with <strong>Google Authenticator 2FA</strong>.
+                      Your account registration and <strong>Google Authenticator 2FA</strong> binding have been recorded.
                     </p>
+                  </div>
+
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-amber-950 text-xs text-left flex items-start space-x-2.5">
+                    <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-extrabold text-amber-900 block mb-0.5">HEAD OFFICE ADMIN APPROVAL REQUIRED</span>
+                      <p className="text-[11px] text-amber-800 leading-snug">
+                        An Administrator from Head Office must review and give signoff approval for your account before you can log in to the system.
+                      </p>
+                    </div>
                   </div>
 
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-2 text-xs">
@@ -1822,11 +1767,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                       <span className="text-slate-500 font-semibold">Assigned Branch:</span>
                       <span className="font-bold text-slate-900">{createdSignupUser.branch_name}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500 font-semibold">2FA Security Status:</span>
-                      <span className="font-extrabold text-emerald-600 flex items-center space-x-1">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>2FA Google Authenticator Active</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-semibold">Account Status:</span>
+                      <span className="font-extrabold text-amber-700 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full text-[10px] flex items-center space-x-1">
+                        <AlertCircle className="w-3 h-3 text-amber-600" />
+                        <span>Pending Admin Approval</span>
                       </span>
                     </div>
                   </div>
@@ -1835,12 +1780,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
                     type="button"
                     onClick={() => {
                       setIdentifier(createdSignupUser.email);
-                      setPassword(signupForm.password);
+                      setPassword('');
                       setShowSignupModal(false);
                     }}
                     className="w-full bg-[#0F203C] hover:bg-[#1a335c] text-white font-extrabold text-xs uppercase tracking-wider py-3.5 px-4 rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center space-x-2"
                   >
-                    <span>SIGN IN TO YOUR NEW ACCOUNT NOW</span>
+                    <span>RETURN TO LOGIN</span>
                     <ArrowRight className="w-4 h-4 text-[#FFC81E]" />
                   </button>
                 </div>
