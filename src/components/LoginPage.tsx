@@ -73,16 +73,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
 
   // Forgot Email / Password Recovery Modal State
   const [showRecoveryModal, setShowRecoveryModal] = useState<boolean>(false);
-  const [recoveryTab, setRecoveryTab] = useState<'otp' | 'ho_backup_key'>('otp');
-  const [recoverySearchQuery, setRecoverySearchQuery] = useState<string>('');
-  const [foundUsers, setFoundUsers] = useState<SystemUser[]>([]);
+  const [recoveryTab, setRecoveryTab] = useState<'ho_backup_key' | 'otp'>('ho_backup_key');
+  const [recoveryEmailInput, setRecoveryEmailInput] = useState<string>('');
   const [selectedRecoveryUser, setSelectedRecoveryUser] = useState<SystemUser | null>(null);
-  const [recoveryStep, setRecoveryStep] = useState<'search' | 'otp' | 'reset'>('search');
+  const [recoveryStep, setRecoveryStep] = useState<'email' | 'otp' | 'reset'>('email');
   const [simulatedOtpCode, setSimulatedOtpCode] = useState<string>('');
   const [userEnteredOtp, setUserEnteredOtp] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [resetSuccess, setResetSuccess] = useState<boolean>(false);
+  const [otpErrorMsg, setOtpErrorMsg] = useState<string | null>(null);
 
   // HO Emergency Backup Key Recovery States
   const [hoBackupKeyInput, setHoBackupKeyInput] = useState<string>('');
@@ -457,84 +457,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     }
   };
 
-  // Handle Account Recovery Search
-  const handleRecoverySearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!recoverySearchQuery.trim()) return;
-
-    try {
-      const dbUsers = await fetchUsers();
-      const q = recoverySearchQuery.trim().toLowerCase();
-      const matches = dbUsers.filter(u => 
-        u.name.toLowerCase().includes(q) || 
-        (u.employee_id && u.employee_id.toLowerCase().includes(q)) ||
-        u.email.toLowerCase().includes(q) ||
-        (u.phone && u.phone.includes(q))
-      );
-
-      setFoundUsers(matches);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Send Simulated OTP for Selected Recovery Account
-  const handleInitiateOtpRecovery = (u: SystemUser) => {
-    setSelectedRecoveryUser(u);
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    setSimulatedOtpCode(code);
-    setRecoveryStep('otp');
-  };
-
-  const handleVerifyOtpCode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (userEnteredOtp.trim() === simulatedOtpCode) {
-      setRecoveryStep('reset');
-    } else {
-      alert('Invalid 6-digit recovery OTP code. Please enter ' + simulatedOtpCode);
-    }
-  };
-
-  const handleSaveResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedRecoveryUser) return;
-    if (newPassword !== confirmPassword) {
-      alert('Passwords do not match.');
-      return;
-    }
-    if (newPassword.length < 6) {
-      alert('Password must be at least 6 characters.');
-      return;
-    }
-
-    try {
-      await updateUser(selectedRecoveryUser.id, {
-        password: newPassword,
-        mustChangePassword: false,
-        passwordChangedAt: new Date().toISOString()
-      });
-      setResetSuccess(true);
-      setTimeout(() => {
-        setShowRecoveryModal(false);
-        setResetSuccess(false);
-        setRecoveryStep('search');
-        setSelectedRecoveryUser(null);
-        setNewPassword('');
-        setConfirmPassword('');
-      }, 2000);
-    } catch (e) {
-      alert('Failed to reset password.');
-    }
-  };
-
-  // Perform Emergency Account Recovery via Head Office Backup Key
-  const handleHoBackupKeyRecovery = async (e: React.FormEvent) => {
+  // Direct Account Recovery via Head Office Master Recovery Key
+  const handleDirectHoBackupRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setHoBackupErrorMsg(null);
     setHoBackupSuccessMsg(null);
 
-    if (!selectedRecoveryUser) {
-      setHoBackupErrorMsg('Please search and select the target account to recover.');
+    const emailOrId = recoveryEmailInput.trim().toLowerCase();
+    if (!emailOrId) {
+      setHoBackupErrorMsg('Please enter your registered Email address or Employee ID.');
       return;
     }
 
@@ -544,17 +475,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
     }
 
     if (newPassword !== confirmPassword) {
-      setHoBackupErrorMsg('Passwords do not match.');
+      setHoBackupErrorMsg('New Password and Confirm Password do not match.');
       return;
     }
 
     if (newPassword.length < 6) {
-      setHoBackupErrorMsg('Password must be at least 6 characters long.');
+      setHoBackupErrorMsg('New Password must be at least 6 characters long.');
       return;
     }
 
     try {
-      // Fetch latest company settings
+      // Fetch latest registered users
+      const dbUsers = await fetchUsers();
+      const targetUser = dbUsers.find(u => 
+        u.email.trim().toLowerCase() === emailOrId ||
+        (u.employee_id && u.employee_id.trim().toLowerCase() === emailOrId) ||
+        u.id.toLowerCase() === emailOrId
+      );
+
+      if (!targetUser) {
+        setHoBackupErrorMsg(`No registered account found matching "${recoveryEmailInput}". Please check your email or Employee ID.`);
+        return;
+      }
+
+      // Fetch company settings for HO Master Backup Key
       let compSettings = null;
       try {
         compSettings = await fetchCompanySettings();
@@ -564,22 +508,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
       }
 
       if (!compSettings || !compSettings.ho_backup_key) {
-        setHoBackupErrorMsg('Head Office Master Backup Recovery Key is not configured in the system. Contact Head Office Admin.');
+        setHoBackupErrorMsg('Head Office Master Backup Recovery Key is not configured in System Settings. Please contact Head Office Admin.');
         return;
       }
 
       if (compSettings.ho_backup_key_status === 'Deactivated') {
-        setHoBackupErrorMsg('Head Office Master Backup Recovery Key is currently DEACTIVATED by Administration. Emergency recovery is disabled.');
+        setHoBackupErrorMsg('Head Office Master Backup Recovery Key is currently DEACTIVATED by Administration.');
         return;
       }
 
       if (hoBackupKeyInput.trim() !== compSettings.ho_backup_key.trim()) {
-        setHoBackupErrorMsg('Invalid Head Office Master Backup Recovery Key. Verification failed.');
+        setHoBackupErrorMsg('Invalid Head Office Master Backup Recovery Key. Key verification failed.');
         return;
       }
 
-      // Backup key verified! Reset target user account credentials & unlock
-      await updateUser(selectedRecoveryUser.id, {
+      // Master Backup Key verified! Reset credentials & unlock account
+      await updateUser(targetUser.id, {
         password: newPassword,
         status: 'Active',
         mustChangePassword: false,
@@ -588,21 +532,102 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
         lockedUntil: undefined
       });
 
-      setHoBackupSuccessMsg(`✅ Account (${selectedRecoveryUser.name}) recovered & unlocked successfully via Head Office Master Backup Key!`);
+      setHoBackupSuccessMsg(`✅ Account (${targetUser.name} - ${targetUser.email}) credentials reset & unlocked successfully via Head Office Master Recovery Key!`);
+
+      // Auto pre-fill login inputs
+      setIdentifier(targetUser.email || targetUser.employee_id || '');
+      setPassword(newPassword);
 
       setTimeout(() => {
-        setIdentifier(selectedRecoveryUser.employee_id || selectedRecoveryUser.email);
-        setPassword(newPassword);
         setShowRecoveryModal(false);
         setHoBackupSuccessMsg(null);
+        setRecoveryEmailInput('');
         setHoBackupKeyInput('');
         setNewPassword('');
         setConfirmPassword('');
-        setSelectedRecoveryUser(null);
-      }, 2200);
-
+      }, 2000);
     } catch (err) {
-      setHoBackupErrorMsg('An error occurred during emergency account recovery. Please try again.');
+      console.error(err);
+      setHoBackupErrorMsg('Failed to process account recovery. Please try again.');
+    }
+  };
+
+  // Direct OTP Email Recovery Handlers
+  const handleSendOtpForEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOtpErrorMsg(null);
+
+    const emailOrId = recoveryEmailInput.trim().toLowerCase();
+    if (!emailOrId) {
+      setOtpErrorMsg('Please enter your account Email address or Employee ID.');
+      return;
+    }
+
+    try {
+      const dbUsers = await fetchUsers();
+      const targetUser = dbUsers.find(u => 
+        u.email.trim().toLowerCase() === emailOrId ||
+        (u.employee_id && u.employee_id.trim().toLowerCase() === emailOrId) ||
+        u.id.toLowerCase() === emailOrId
+      );
+
+      if (!targetUser) {
+        setOtpErrorMsg(`No registered account found matching "${recoveryEmailInput}".`);
+        return;
+      }
+
+      setSelectedRecoveryUser(targetUser);
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      setSimulatedOtpCode(code);
+      setRecoveryStep('otp');
+    } catch (err) {
+      setOtpErrorMsg('Failed to look up user account. Please try again.');
+    }
+  };
+
+  const handleVerifyOtpAndReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRecoveryUser) return;
+
+    if (userEnteredOtp.trim() !== simulatedOtpCode) {
+      setOtpErrorMsg(`Invalid 6-digit OTP code. Enter code: ${simulatedOtpCode}`);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setOtpErrorMsg('New password and confirm password do not match.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setOtpErrorMsg('Password must be at least 6 characters long.');
+      return;
+    }
+
+    try {
+      await updateUser(selectedRecoveryUser.id, {
+        password: newPassword,
+        status: 'Active',
+        mustChangePassword: false,
+        passwordChangedAt: new Date().toISOString()
+      });
+
+      setResetSuccess(true);
+      setIdentifier(selectedRecoveryUser.email || selectedRecoveryUser.employee_id || '');
+      setPassword(newPassword);
+
+      setTimeout(() => {
+        setShowRecoveryModal(false);
+        setResetSuccess(false);
+        setRecoveryStep('email');
+        setSelectedRecoveryUser(null);
+        setRecoveryEmailInput('');
+        setUserEnteredOtp('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }, 2000);
+    } catch (err) {
+      setOtpErrorMsg('Failed to reset password.');
     }
   };
 
@@ -1124,311 +1149,212 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, branches, 
             </div>
 
             <div className="p-6 space-y-4 text-xs">
-              {/* TAB 1: STANDARD OTP RECOVERY */}
-              {recoveryTab === 'otp' && (
-                <>
-                  {recoveryStep === 'search' && (
-                    <div className="space-y-4">
-                      <form onSubmit={handleRecoverySearch} className="space-y-3">
-                        <div>
-                          <label className="font-bold text-slate-700 block mb-1 uppercase tracking-wider text-[11px]">
-                            Search Employee Name, Employee ID or Phone:
-                          </label>
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="text"
-                              required
-                              placeholder="e.g. Nishantha or EMP-1001"
-                              value={recoverySearchQuery}
-                              onChange={(e) => setRecoverySearchQuery(e.target.value)}
-                              className="flex-1 bg-slate-50 border border-slate-300 font-semibold p-2.5 rounded-lg focus:bg-white focus:border-orange-500"
-                            />
-                            <button
-                              type="submit"
-                              className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shadow-xs cursor-pointer"
-                            >
-                              Find Account
-                            </button>
-                          </div>
-                        </div>
-                      </form>
+              {/* TAB 1: HO EMERGENCY MASTER BACKUP KEY RECOVERY (PRIMARY & DIRECT) */}
+              {recoveryTab === 'ho_backup_key' && (
+                <form onSubmit={handleDirectHoBackupRecovery} className="space-y-4">
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-950 space-y-1">
+                    <div className="font-bold flex items-center space-x-1.5 text-rose-700 text-sm">
+                      <ShieldAlert className="w-4 h-4 shrink-0" />
+                      <span>Head Office Direct Account Recovery</span>
+                    </div>
+                    <p className="text-[11px] text-rose-800 leading-snug">
+                      Enter your account Email address and the Head Office Master Recovery Key to immediately reset your password and unlock access.
+                    </p>
+                  </div>
 
-                      {foundUsers.length > 0 && (
-                        <div className="space-y-2 pt-2 border-t border-slate-200">
-                          <span className="font-bold text-slate-700 block">MATCHING REGISTERED ACCOUNTS:</span>
-                          <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {foundUsers.map(u => (
-                              <div key={u.id} className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between">
-                                <div>
-                                  <div className="font-bold text-slate-900 flex items-center space-x-1.5">
-                                    <span>{u.name}</span>
-                                    {u.employee_id && (
-                                      <span className="text-[9px] font-mono font-bold text-orange-700 bg-orange-50 border border-orange-200 px-1.5 py-0.2 rounded">
-                                        {u.employee_id}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[11px] font-mono text-slate-500">
-                                    Email: <span className="font-bold text-slate-700">{maskEmail(u.email)}</span>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleInitiateOtpRecovery(u)}
-                                  className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg text-xs cursor-pointer"
-                                >
-                                  Reset Password →
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                  {hoBackupErrorMsg && (
+                    <div className="p-3 bg-rose-100 border border-rose-300 text-rose-900 rounded-xl font-semibold flex items-start space-x-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>{hoBackupErrorMsg}</span>
                     </div>
                   )}
 
-                  {recoveryStep === 'otp' && selectedRecoveryUser && (
-                    <form onSubmit={handleVerifyOtpCode} className="space-y-4">
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900">
-                        <span className="font-bold">Recovery OTP Code Sent:</span> Simulated recovery email dispatched to <strong className="font-mono">{maskEmail(selectedRecoveryUser.email)}</strong>.
-                      </div>
+                  {hoBackupSuccessMsg && (
+                    <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-xl font-bold text-center">
+                      {hoBackupSuccessMsg}
+                    </div>
+                  )}
 
-                      <div className="p-3 bg-slate-100 border border-slate-300 rounded-xl text-center space-y-1">
-                        <span className="text-[10px] text-slate-500 uppercase font-bold block">SIMULATED RECOVERY PASSCODE:</span>
-                        <span className="text-xl font-mono font-black text-orange-600 tracking-widest">{simulatedOtpCode}</span>
-                      </div>
+                  <div>
+                    <label className="font-bold text-slate-800 block mb-1 uppercase tracking-wider text-[11px]">
+                      Registered Account Email or Employee ID *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. admin@innovistapos.lk or EMP-1001"
+                      value={recoveryEmailInput}
+                      onChange={(e) => setRecoveryEmailInput(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 font-bold text-slate-900 p-2.5 rounded-lg focus:bg-white focus:border-rose-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-800 block mb-1 uppercase tracking-wider text-[11px]">
+                      Head Office Master Backup Recovery Key *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showHoBackupKeySecret ? 'text' : 'password'}
+                        required
+                        placeholder="Enter HO Emergency Key (e.g. HO-MASTER-EMERGENCY-2026-X89B)"
+                        value={hoBackupKeyInput}
+                        onChange={(e) => setHoBackupKeyInput(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 font-mono font-bold text-slate-900 p-2.5 rounded-lg pr-10 focus:bg-white focus:border-rose-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowHoBackupKeySecret(!showHoBackupKeySecret)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showHoBackupKeySecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Provided by Head Office Admin (configured in Security Settings).
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold text-slate-800 block mb-1 uppercase tracking-wider text-[11px]">New Password *</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Min 6 characters"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg focus:bg-white focus:border-rose-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-800 block mb-1 uppercase tracking-wider text-[11px]">Confirm Password *</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Re-type new password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg focus:bg-white focus:border-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    <span>Reset Credentials & Unlock Account</span>
+                  </button>
+                </form>
+              )}
+
+              {/* TAB 2: EMAIL / OTP RECOVERY */}
+              {recoveryTab === 'otp' && (
+                <>
+                  {recoveryStep === 'email' && (
+                    <form onSubmit={handleSendOtpForEmail} className="space-y-4">
+                      {otpErrorMsg && (
+                        <div className="p-3 bg-rose-100 border border-rose-300 text-rose-900 rounded-xl font-semibold flex items-start space-x-2">
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                          <span>{otpErrorMsg}</span>
+                        </div>
+                      )}
 
                       <div>
-                        <label className="font-bold text-slate-700 block mb-1">ENTER 6-DIGIT RECOVERY PASSCODE:</label>
+                        <label className="font-bold text-slate-700 block mb-1 uppercase tracking-wider text-[11px]">
+                          Enter Registered Account Email or Employee ID *
+                        </label>
                         <input
                           type="text"
                           required
-                          placeholder="e.g. 6-digit code above"
-                          value={userEnteredOtp}
-                          onChange={(e) => setUserEnteredOtp(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 font-mono font-bold text-center text-base p-2.5 rounded-lg focus:bg-white focus:border-orange-500"
+                          placeholder="e.g. admin@innovistapos.lk or EMP-1001"
+                          value={recoveryEmailInput}
+                          onChange={(e) => setRecoveryEmailInput(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg focus:bg-white focus:border-orange-500 text-sm"
                         />
                       </div>
 
                       <button
                         type="submit"
-                        className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                        className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
                       >
-                        Verify Passcode & Continue
+                        <Mail className="w-4 h-4" />
+                        <span>Send 6-Digit OTP Code</span>
                       </button>
                     </form>
                   )}
 
-                  {recoveryStep === 'reset' && selectedRecoveryUser && (
-                    <form onSubmit={handleSaveResetPassword} className="space-y-4">
+                  {recoveryStep === 'otp' && selectedRecoveryUser && (
+                    <form onSubmit={handleVerifyOtpAndReset} className="space-y-4">
                       {resetSuccess ? (
                         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-900 text-center rounded-xl font-bold">
                           ✅ Password updated successfully! Redirecting to login...
                         </div>
                       ) : (
                         <>
-                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
-                            Resetting password for employee <strong className="text-amber-950">{selectedRecoveryUser.name} ({selectedRecoveryUser.employee_id || 'ID Verified'})</strong>.
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900">
+                            Resetting password for: <strong className="font-bold">{selectedRecoveryUser.name} ({selectedRecoveryUser.email})</strong>
                           </div>
 
-                          <div>
-                            <label className="font-bold text-slate-700 block mb-1">NEW PASSPHRASE:</label>
-                            <input
-                              type="password"
-                              required
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg"
-                            />
-                            <div className="mt-1 flex items-center space-x-2">
-                              <div className={`h-1.5 flex-1 rounded-full ${pwdStrength.color}`}></div>
-                              <span className="text-[10px] font-bold text-slate-600">{pwdStrength.label}</span>
+                          <div className="p-3 bg-slate-100 border border-slate-300 rounded-xl text-center space-y-1">
+                            <span className="text-[10px] text-slate-500 uppercase font-bold block">SIMULATED RECOVERY PASSCODE:</span>
+                            <span className="text-xl font-mono font-black text-orange-600 tracking-widest">{simulatedOtpCode}</span>
+                          </div>
+
+                          {otpErrorMsg && (
+                            <div className="p-3 bg-rose-100 border border-rose-300 text-rose-900 rounded-xl font-semibold">
+                              {otpErrorMsg}
                             </div>
-                          </div>
+                          )}
 
                           <div>
-                            <label className="font-bold text-slate-700 block mb-1">CONFIRM PASSPHRASE:</label>
+                            <label className="font-bold text-slate-700 block mb-1 uppercase tracking-wider text-[11px]">ENTER 6-DIGIT OTP PASSCODE *</label>
                             <input
-                              type="password"
+                              type="text"
                               required
-                              value={confirmPassword}
-                              onChange={(e) => setConfirmPassword(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg"
+                              placeholder="e.g. 6-digit code above"
+                              value={userEnteredOtp}
+                              onChange={(e) => setUserEnteredOtp(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-300 font-mono font-bold text-center text-base p-2.5 rounded-lg focus:bg-white focus:border-orange-500"
                             />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="font-bold text-slate-700 block mb-1 uppercase tracking-wider text-[11px]">NEW PASSWORD *</label>
+                              <input
+                                type="password"
+                                required
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg focus:bg-white focus:border-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="font-bold text-slate-700 block mb-1 uppercase tracking-wider text-[11px]">CONFIRM PASSWORD *</label>
+                              <input
+                                type="password"
+                                required
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg focus:bg-white focus:border-orange-500"
+                              />
+                            </div>
                           </div>
 
                           <button
                             type="submit"
-                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition cursor-pointer"
                           >
-                            Save New Password
+                            Verify & Reset Password
                           </button>
                         </>
                       )}
                     </form>
                   )}
                 </>
-              )}
-
-              {/* TAB 2: HO EMERGENCY MASTER BACKUP KEY RECOVERY */}
-              {recoveryTab === 'ho_backup_key' && (
-                <div className="space-y-4">
-                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-950 space-y-1">
-                    <div className="font-bold flex items-center space-x-1.5 text-rose-700">
-                      <ShieldAlert className="w-4 h-4 shrink-0" />
-                      <span>Head Office Emergency Account Recovery</span>
-                    </div>
-                    <p className="text-[11px] text-rose-800 leading-snug">
-                      Use the active Master Backup Key defined by Head Office Administration to override and reset credentials for any locked or unrecoverable account.
-                    </p>
-                  </div>
-
-                  {/* Step 1: Select Target User */}
-                  {!selectedRecoveryUser ? (
-                    <div className="space-y-3">
-                      <form onSubmit={handleRecoverySearch} className="space-y-2">
-                        <label className="font-bold text-slate-700 block uppercase text-[11px] tracking-wider">
-                          1. Select Account to Recover:
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="text"
-                            required
-                            placeholder="Type Name, Email or Employee ID..."
-                            value={recoverySearchQuery}
-                            onChange={(e) => setRecoverySearchQuery(e.target.value)}
-                            className="flex-1 bg-slate-50 border border-slate-300 font-semibold p-2.5 rounded-lg focus:bg-white focus:border-rose-500"
-                          />
-                          <button
-                            type="submit"
-                            className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg shadow-xs cursor-pointer"
-                          >
-                            Search
-                          </button>
-                        </div>
-                      </form>
-
-                      {foundUsers.length > 0 && (
-                        <div className="space-y-2 pt-2 border-t border-slate-200">
-                          <span className="font-bold text-slate-700 block">SELECT ACCOUNT:</span>
-                          <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {foundUsers.map(u => (
-                              <div key={u.id} className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between hover:bg-rose-50/50 transition">
-                                <div>
-                                  <div className="font-bold text-slate-900 flex items-center space-x-1.5">
-                                    <span>{u.name}</span>
-                                    {u.employee_id && (
-                                      <span className="text-[9px] font-mono font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded">
-                                        {u.employee_id}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[11px] font-mono text-slate-500">{u.email} ({u.role})</div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedRecoveryUser(u)}
-                                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs cursor-pointer"
-                                >
-                                  Select User →
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    /* Step 2: Enter HO Backup Key & New Credentials */
-                    <form onSubmit={handleHoBackupKeyRecovery} className="space-y-3">
-                      <div className="bg-slate-100 border border-slate-300 p-3 rounded-xl flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-500 uppercase block">TARGET ACCOUNT FOR RECOVERY:</span>
-                          <div className="font-bold text-slate-900 text-sm">{selectedRecoveryUser.name}</div>
-                          <div className="text-[11px] font-mono text-slate-600">{selectedRecoveryUser.email} • {selectedRecoveryUser.role}</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedRecoveryUser(null)}
-                          className="text-xs text-rose-600 font-bold underline hover:text-rose-800"
-                        >
-                          Change
-                        </button>
-                      </div>
-
-                      {hoBackupErrorMsg && (
-                        <div className="p-3 bg-rose-100 border border-rose-300 text-rose-900 rounded-xl font-semibold flex items-start space-x-2">
-                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                          <span>{hoBackupErrorMsg}</span>
-                        </div>
-                      )}
-
-                      {hoBackupSuccessMsg && (
-                        <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-xl font-bold text-center">
-                          {hoBackupSuccessMsg}
-                        </div>
-                      )}
-
-                      <div>
-                        <label className="font-bold text-slate-800 block mb-1">
-                          HEAD OFFICE MASTER BACKUP RECOVERY KEY *
-                        </label>
-                        <div className="relative">
-                          <input
-                            type={showHoBackupKeySecret ? 'text' : 'password'}
-                            required
-                            placeholder="Enter HO Emergency Key..."
-                            value={hoBackupKeyInput}
-                            onChange={(e) => setHoBackupKeyInput(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-300 font-mono font-bold text-slate-900 p-2.5 rounded-lg pr-10 focus:bg-white focus:border-rose-500"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowHoBackupKeySecret(!showHoBackupKeySecret)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                          >
-                            {showHoBackupKeySecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                        <p className="text-[10px] text-slate-500 mt-1">
-                          Key set and managed exclusively by Head Office Administrators in System Security Settings.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="font-bold text-slate-800 block mb-1">NEW PASSWORD *</label>
-                        <input
-                          type="password"
-                          required
-                          placeholder="Min 6 characters..."
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg focus:bg-white focus:border-rose-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="font-bold text-slate-800 block mb-1">CONFIRM NEW PASSWORD *</label>
-                        <input
-                          type="password"
-                          required
-                          placeholder="Re-type new password..."
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 font-bold p-2.5 rounded-lg focus:bg-white focus:border-rose-500"
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
-                      >
-                        <KeyRound className="w-4 h-4" />
-                        <span>Verify HO Key & Unlock Account</span>
-                      </button>
-                    </form>
-                  )}
-                </div>
               )}
             </div>
           </div>
